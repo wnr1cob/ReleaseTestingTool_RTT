@@ -1,0 +1,514 @@
+"""
+Report Generator – create an Excel summary of PDF analysis results.
+
+Produces ``RTT_Execution_YYYYMMDDHHMMSS.xlsx`` with:
+* Header banner with title and timestamp
+* Stat cards in a single row: Passed | Failed | Error | Undefined | Total
+* Detail table with auto-width filename column and status-specific styling
+"""
+
+import os
+from datetime import datetime
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
+
+# ═══════════════════════════════════════════════════════════════
+# STYLE CONSTANTS
+# ═══════════════════════════════════════════════════════════════
+
+# ── Borders ────────────────────────────────────────────────────
+_NO_BORDER = Border()
+_THIN_BORDER = Border(
+    left=Side(style="thin", color="CCCCCC"),
+    right=Side(style="thin", color="CCCCCC"),
+    top=Side(style="thin", color="CCCCCC"),
+    bottom=Side(style="thin", color="CCCCCC"),
+)
+
+# ── Fills ──────────────────────────────────────────────────────
+_TITLE_FILL = PatternFill(start_color="0D1B2A", end_color="0D1B2A", fill_type="solid")
+_DARK_FILL = PatternFill(start_color="1A1A2E", end_color="1A1A2E", fill_type="solid")
+_SECTION_FILL = PatternFill(start_color="1A1A40", end_color="1A1A40", fill_type="solid")
+_TABLE_HEADER_FILL = PatternFill(start_color="0F3460", end_color="0F3460", fill_type="solid")
+_ROW_EVEN = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
+_ROW_ODD = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+_TOTAL_FILL = PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid")
+
+_STATUS_FILLS = {
+    "Passed":    PatternFill(start_color="C8E6C9", end_color="C8E6C9", fill_type="solid"),
+    "Failed":    PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid"),
+    "Error":     PatternFill(start_color="FFE0B2", end_color="FFE0B2", fill_type="solid"),
+    "Undefined": PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid"),
+    "Unknown":   PatternFill(start_color="EEEEEE", end_color="EEEEEE", fill_type="solid"),
+}
+
+_CARD_FILLS = {
+    "Passed":    PatternFill(start_color="1B5E20", end_color="1B5E20", fill_type="solid"),
+    "Failed":    PatternFill(start_color="B71C1C", end_color="B71C1C", fill_type="solid"),
+    "Error":     PatternFill(start_color="E65100", end_color="E65100", fill_type="solid"),
+    "Undefined": PatternFill(start_color="37474F", end_color="37474F", fill_type="solid"),
+    "Total":     PatternFill(start_color="01579B", end_color="01579B", fill_type="solid"),
+}
+
+# ── Fonts ──────────────────────────────────────────────────────
+_TITLE_FONT = Font(name="Segoe UI", size=18, bold=True, color="00D4FF")
+_SUBTITLE_FONT = Font(name="Segoe UI", size=10, color="8892B0")
+_CARD_LABEL_FONT = Font(name="Segoe UI", size=9, color="AAAAAA")
+_CARD_VALUE_FONT = Font(name="Segoe UI", size=16, bold=True, color="FFFFFF")
+_CARD_PCT_FONT = Font(name="Segoe UI", size=9, color="CCCCCC")
+_TABLE_HEADER_FONT = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+_BODY_FONT = Font(name="Segoe UI", size=10, color="333333")
+_BODY_BOLD = Font(name="Segoe UI", size=10, bold=True, color="333333")
+
+_STATUS_FONTS = {
+    "Passed":    Font(name="Segoe UI", size=10, bold=True, color="1B5E20"),
+    "Failed":    Font(name="Segoe UI", size=10, bold=True, color="B71C1C"),
+    "Error":     Font(name="Segoe UI", size=10, bold=True, color="E65100"),
+    "Undefined": Font(name="Segoe UI", size=10, bold=True, color="616161"),
+    "Unknown":   Font(name="Segoe UI", size=10, bold=True, color="9E9E9E"),
+}
+
+# ── Alignment ──────────────────────────────────────────────────
+_CENTER = Alignment(horizontal="center", vertical="center")
+_LEFT_CENTER = Alignment(horizontal="left", vertical="center")
+_RIGHT_CENTER = Alignment(horizontal="right", vertical="center")
+
+
+# ═══════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════
+
+def _fill_range(ws, r1, r2, c1, c2, fill):
+    """Apply *fill* to every cell in the rectangle [r1:r2, c1:c2]."""
+    for r in range(r1, r2 + 1):
+        for c in range(c1, c2 + 1):
+            ws.cell(row=r, column=c).fill = fill
+
+
+def _auto_col_width(ws, col_letter: str, min_width: float = 12):
+    """Set the column width to fit the longest cell value (+ padding)."""
+    max_len = min_width
+    for cell in ws[col_letter]:
+        if cell.value:
+            max_len = max(max_len, len(str(cell.value)) + 4)
+    ws.column_dimensions[col_letter].width = max_len
+
+
+# ═══════════════════════════════════════════════════════════════
+# PUBLIC API
+# ═══════════════════════════════════════════════════════════════
+
+def generate_report(
+    output_dir: str,
+    file_results: list[dict[str, str]],
+    results_count: dict[str, int],
+) -> str:
+    """
+    Create the RTT Execution Excel report.
+
+    Parameters
+    ----------
+    output_dir : str
+        Directory where the file will be saved.
+    file_results : list[dict]
+        ``[{"name": "file.pdf", "result": "Passed"}, ...]``
+    results_count : dict[str, int]
+        ``{"Passed": 5, "Failed": 2, "Error": 1, "Undefined": 0}``
+
+    Returns
+    -------
+    str   Absolute path to the saved ``.xlsx`` file.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Execution Summary"
+    ws.sheet_properties.tabColor = "00D4FF"
+    ws.sheet_view.showGridLines = False
+
+    total = sum(results_count.values())
+    categories = ["Passed", "Failed", "Error", "Undefined", "Total"]
+    values = [results_count.get(c, 0) for c in categories[:-1]] + [total]
+    pcts = [(v / total * 100) if total else 0 for v in values]
+    pcts[-1] = 100.0
+
+    # Columns: A=margin  B=#  C=Filename  D=Status  E-F=extra cards  G=margin
+    # For the stat cards we need 5 columns (B-F), so add E and F
+    ws.column_dimensions["A"].width = 3
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["D"].width = 16
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 16
+    ws.column_dimensions["G"].width = 3
+
+    # ───────────────────────────────────────────────────────────
+    # ROW 1-3 : TITLE BANNER
+    # ───────────────────────────────────────────────────────────
+    _fill_range(ws, 1, 3, 1, 7, _TITLE_FILL)
+    ws.row_dimensions[1].height = 8
+
+    ws.merge_cells("B2:F2")
+    c = ws["B2"]
+    c.value = "📊  RTT Execution Summary"
+    c.font = _TITLE_FONT
+    c.alignment = _LEFT_CENTER
+    ws.row_dimensions[2].height = 40
+
+    ws.merge_cells("B3:F3")
+    c = ws["B3"]
+    c.value = f"Generated: {datetime.now().strftime('%Y-%m-%d  %H:%M:%S')}"
+    c.font = _SUBTITLE_FONT
+    c.alignment = _LEFT_CENTER
+    ws.row_dimensions[3].height = 22
+
+    # ───────────────────────────────────────────────────────────
+    # ROW 4-8 : STAT CARDS  (all 5 in one row: B-F)
+    # ───────────────────────────────────────────────────────────
+    ws.row_dimensions[4].height = 6
+    _fill_range(ws, 4, 4, 1, 7, _DARK_FILL)
+
+    ws.row_dimensions[5].height = 18   # label
+    ws.row_dimensions[6].height = 34   # value
+    ws.row_dimensions[7].height = 18   # percentage
+    ws.row_dimensions[8].height = 8    # spacer
+    _fill_range(ws, 5, 8, 1, 7, _DARK_FILL)
+
+    card_cols = [2, 3, 4, 5, 6]  # B, C, D, E, F
+    for i, col in enumerate(card_cols):
+        cat = categories[i]
+        fill = _CARD_FILLS[cat]
+
+        lbl = ws.cell(row=5, column=col, value=f"  {cat}")
+        lbl.font = _CARD_LABEL_FONT
+        lbl.fill = fill
+        lbl.alignment = _LEFT_CENTER
+
+        val = ws.cell(row=6, column=col, value=values[i])
+        val.font = _CARD_VALUE_FONT
+        val.fill = fill
+        val.alignment = _CENTER
+
+        pct = ws.cell(row=7, column=col, value=f"  {pcts[i]:.1f}%")
+        pct.font = _CARD_PCT_FONT
+        pct.fill = fill
+        pct.alignment = _LEFT_CENTER
+
+    # ───────────────────────────────────────────────────────────
+    # ROW 9 : SECTION HEADER
+    # ───────────────────────────────────────────────────────────
+    row = 9
+    _fill_range(ws, row, row, 1, 7, _SECTION_FILL)
+    ws.merge_cells(f"B{row}:F{row}")
+    c = ws.cell(row=row, column=2, value="  📄  PDF File Details")
+    c.font = Font(name="Segoe UI", size=13, bold=True, color="FFFFFF")
+    c.fill = _SECTION_FILL
+    c.alignment = _LEFT_CENTER
+    ws.row_dimensions[row].height = 32
+    row += 1
+
+    # ───────────────────────────────────────────────────────────
+    # ROW 10 : TABLE HEADER  (# | Filename | Status)
+    # ───────────────────────────────────────────────────────────
+    # Merge C-E for filename column in table area
+    ws.merge_cells(f"C{row}:E{row}")
+    for col, txt in [(2, "#"), (3, "PDF Filename"), (6, "Status")]:
+        c = ws.cell(row=row, column=col, value=txt)
+        c.font = _TABLE_HEADER_FONT
+        c.fill = _TABLE_HEADER_FILL
+        c.border = _THIN_BORDER
+        c.alignment = _CENTER
+    # Fill merged header cells
+    for mc in [4, 5]:
+        ws.cell(row=row, column=mc).fill = _TABLE_HEADER_FILL
+        ws.cell(row=row, column=mc).border = _THIN_BORDER
+    ws.row_dimensions[row].height = 28
+    row += 1
+
+    # ───────────────────────────────────────────────────────────
+    # DATA ROWS
+    # ───────────────────────────────────────────────────────────
+    sorted_results = sorted(file_results, key=lambda e: e["name"])
+    max_name_len = len("PDF Filename")
+
+    for idx, entry in enumerate(sorted_results, start=1):
+        status = entry["result"]
+        bg = _ROW_EVEN if idx % 2 == 0 else _ROW_ODD
+
+        # Merge C-E for filename
+        ws.merge_cells(f"C{row}:E{row}")
+
+        # #
+        c = ws.cell(row=row, column=2, value=idx)
+        c.font = _BODY_FONT
+        c.border = _THIN_BORDER
+        c.alignment = _CENTER
+        c.fill = bg
+
+        # Filename
+        name = entry["name"]
+        max_name_len = max(max_name_len, len(name))
+        c = ws.cell(row=row, column=3, value=name)
+        c.font = _BODY_FONT
+        c.border = _THIN_BORDER
+        c.alignment = _LEFT_CENTER
+        c.fill = bg
+        # Fill merged cells
+        for mc in [4, 5]:
+            ws.cell(row=row, column=mc).fill = bg
+            ws.cell(row=row, column=mc).border = _THIN_BORDER
+
+        # Status
+        c = ws.cell(row=row, column=6, value=status)
+        c.font = _STATUS_FONTS.get(status, _BODY_BOLD)
+        c.border = _THIN_BORDER
+        c.alignment = _CENTER
+        c.fill = _STATUS_FILLS.get(status, bg)
+
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    # ───────────────────────────────────────────────────────────
+    # FOOTER ROW
+    # ───────────────────────────────────────────────────────────
+    ws.merge_cells(f"B{row}:E{row}")
+    c = ws.cell(row=row, column=2, value=f"  Total: {total} file(s)")
+    c.font = Font(name="Segoe UI", size=10, bold=True, color="01579B")
+    c.fill = _TOTAL_FILL
+    c.border = _THIN_BORDER
+    c.alignment = _LEFT_CENTER
+    for mc in [3, 4, 5]:
+        ws.cell(row=row, column=mc).fill = _TOTAL_FILL
+        ws.cell(row=row, column=mc).border = _THIN_BORDER
+
+    passed_count = results_count.get("Passed", 0)
+    pass_rate = (passed_count / total * 100) if total else 0
+    c = ws.cell(row=row, column=6, value=f"Pass: {pass_rate:.1f}%")
+    c.font = Font(name="Segoe UI", size=10, bold=True, color="1B5E20")
+    c.fill = _TOTAL_FILL
+    c.border = _THIN_BORDER
+    c.alignment = _CENTER
+    ws.row_dimensions[row].height = 26
+
+    # ───────────────────────────────────────────────────────────
+    # AUTO-WIDTH for filename columns (C-E merged = set C width)
+    # ───────────────────────────────────────────────────────────
+    # Combined width of C+D+E should fit the longest name
+    name_width = max_name_len + 4  # padding
+    # Distribute across C, D, E (keep them equal so merge looks right)
+    per_col = max(name_width / 3, 16)
+    ws.column_dimensions["C"].width = per_col
+    ws.column_dimensions["D"].width = per_col
+    ws.column_dimensions["E"].width = per_col
+
+    # ───────────────────────────────────────────────────────────
+    # FREEZE & PRINT
+    # ───────────────────────────────────────────────────────────
+    ws.freeze_panes = "B11"   # Freeze below table header row
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = 0.5
+    ws.page_margins.right = 0.5
+
+    # ───────────────────────────────────────────────────────────
+    # MODULES TAB
+    # ───────────────────────────────────────────────────────────
+    _build_modules_sheet(wb, file_results)
+
+    # ───────────────────────────────────────────────────────────
+    # SAVE
+    # ───────────────────────────────────────────────────────────
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"RTT_Execution_{timestamp}.xlsx"
+    filepath = os.path.join(output_dir, filename)
+    wb.save(filepath)
+
+    return filepath
+
+
+# ═══════════════════════════════════════════════════════════════
+# MODULES SHEET
+# ═══════════════════════════════════════════════════════════════
+
+def _extract_module(filename: str) -> str:
+    """Return the module name (text before the first '-'), or 'Unknown'."""
+    base = os.path.splitext(filename)[0]
+    if "-" in base:
+        return base.split("-", 1)[0].strip()
+    return "Unknown"
+
+
+def _build_modules_sheet(wb: Workbook, file_results: list[dict[str, str]]):
+    """
+    Add a **Modules** worksheet that breaks down results per module.
+
+    Each module row shows: Total tests, Passed (#, %), Failed (#, %),
+    Error (#, %), Undefined (#, %).
+    """
+    from collections import defaultdict
+
+    # ── Aggregate data ─────────────────────────────────────────
+    module_data: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"Total": 0, "Passed": 0, "Failed": 0, "Error": 0, "Undefined": 0}
+    )
+    for entry in file_results:
+        mod = _extract_module(entry["name"])
+        status = entry["result"]
+        module_data[mod]["Total"] += 1
+        if status in module_data[mod]:
+            module_data[mod][status] += 1
+
+    modules_sorted = sorted(module_data.keys())
+
+    # ── Create sheet ───────────────────────────────────────────
+    ms = wb.create_sheet(title="Modules")
+    ms.sheet_properties.tabColor = "FFC107"
+    ms.sheet_view.showGridLines = False
+
+    # Column widths:
+    # A=margin  B=Module  C=Total  D=Passed  E=P%  F=Failed  G=F%
+    # H=Error   I=E%      J=Undefined  K=U%   L=margin
+    ms.column_dimensions["A"].width = 3
+    ms.column_dimensions["B"].width = 30   # will auto-size later
+    ms.column_dimensions["C"].width = 10
+    ms.column_dimensions["D"].width = 10
+    ms.column_dimensions["E"].width = 10
+    ms.column_dimensions["F"].width = 10
+    ms.column_dimensions["G"].width = 10
+    ms.column_dimensions["H"].width = 10
+    ms.column_dimensions["I"].width = 10
+    ms.column_dimensions["J"].width = 13
+    ms.column_dimensions["K"].width = 10
+    ms.column_dimensions["L"].width = 3
+
+    last_col = 12  # L
+
+    # ───────────────────────────────────────────────────────────
+    # TITLE BANNER  (rows 1-3)
+    # ───────────────────────────────────────────────────────────
+    _fill_range(ms, 1, 3, 1, last_col, _TITLE_FILL)
+    ms.row_dimensions[1].height = 8
+
+    ms.merge_cells("B2:K2")
+    c = ms["B2"]
+    c.value = "📦  Module Breakdown"
+    c.font = _TITLE_FONT
+    c.alignment = _LEFT_CENTER
+    ms.row_dimensions[2].height = 40
+
+    ms.merge_cells("B3:K3")
+    c = ms["B3"]
+    c.value = f"Generated: {datetime.now().strftime('%Y-%m-%d  %H:%M:%S')}"
+    c.font = _SUBTITLE_FONT
+    c.alignment = _LEFT_CENTER
+    ms.row_dimensions[3].height = 22
+
+    # ───────────────────────────────────────────────────────────
+    # SPACER
+    # ───────────────────────────────────────────────────────────
+    ms.row_dimensions[4].height = 8
+    _fill_range(ms, 4, 4, 1, last_col, _DARK_FILL)
+
+    # ───────────────────────────────────────────────────────────
+    # TABLE HEADER  (row 5)
+    # ───────────────────────────────────────────────────────────
+    headers = [
+        (2, "Module"),
+        (3, "Total"),
+        (4, "Passed"), (5, "P %"),
+        (6, "Failed"), (7, "F %"),
+        (8, "Error"),  (9, "E %"),
+        (10, "Undefined"), (11, "U %"),
+    ]
+    for col, txt in headers:
+        c = ms.cell(row=5, column=col, value=txt)
+        c.font = _TABLE_HEADER_FONT
+        c.fill = _TABLE_HEADER_FILL
+        c.border = _THIN_BORDER
+        c.alignment = _CENTER
+    ms.row_dimensions[5].height = 28
+
+    # ───────────────────────────────────────────────────────────
+    # DATA ROWS
+    # ───────────────────────────────────────────────────────────
+    row = 6
+    max_mod_len = len("Module")
+
+    for idx, mod in enumerate(modules_sorted, start=1):
+        d = module_data[mod]
+        mod_total = d["Total"]
+        bg = _ROW_EVEN if idx % 2 == 0 else _ROW_ODD
+
+        max_mod_len = max(max_mod_len, len(mod))
+
+        def _pct(count):
+            return f"{(count / mod_total * 100):.1f}%" if mod_total else "0.0%"
+
+        row_data = [
+            (2, mod,          _BODY_BOLD,                           _LEFT_CENTER, bg),
+            (3, mod_total,    _BODY_BOLD,                           _CENTER,      bg),
+            (4, d["Passed"],  _STATUS_FONTS["Passed"],              _CENTER,      _STATUS_FILLS["Passed"]),
+            (5, _pct(d["Passed"]),  _STATUS_FONTS["Passed"],        _CENTER,      _STATUS_FILLS["Passed"]),
+            (6, d["Failed"],  _STATUS_FONTS["Failed"],              _CENTER,      _STATUS_FILLS["Failed"]),
+            (7, _pct(d["Failed"]),  _STATUS_FONTS["Failed"],        _CENTER,      _STATUS_FILLS["Failed"]),
+            (8, d["Error"],   _STATUS_FONTS["Error"],               _CENTER,      _STATUS_FILLS["Error"]),
+            (9, _pct(d["Error"]),   _STATUS_FONTS["Error"],         _CENTER,      _STATUS_FILLS["Error"]),
+            (10, d["Undefined"], _STATUS_FONTS["Undefined"],        _CENTER,      _STATUS_FILLS["Undefined"]),
+            (11, _pct(d["Undefined"]), _STATUS_FONTS["Undefined"],  _CENTER,      _STATUS_FILLS["Undefined"]),
+        ]
+
+        for col, val, font, align, fill in row_data:
+            c = ms.cell(row=row, column=col, value=val)
+            c.font = font
+            c.border = _THIN_BORDER
+            c.alignment = align
+            c.fill = fill
+
+        ms.row_dimensions[row].height = 24
+        row += 1
+
+    # ───────────────────────────────────────────────────────────
+    # FOOTER – grand total row
+    # ───────────────────────────────────────────────────────────
+    grand = {"Total": 0, "Passed": 0, "Failed": 0, "Error": 0, "Undefined": 0}
+    for d in module_data.values():
+        for k in grand:
+            grand[k] += d[k]
+    gt = grand["Total"]
+
+    def _gpct(count):
+        return f"{(count / gt * 100):.1f}%" if gt else "0.0%"
+
+    footer_data = [
+        (2, "TOTAL",          Font(name="Segoe UI", size=10, bold=True, color="01579B"), _LEFT_CENTER),
+        (3, gt,               Font(name="Segoe UI", size=10, bold=True, color="01579B"), _CENTER),
+        (4, grand["Passed"],  _STATUS_FONTS["Passed"],  _CENTER),
+        (5, _gpct(grand["Passed"]),  _STATUS_FONTS["Passed"],  _CENTER),
+        (6, grand["Failed"],  _STATUS_FONTS["Failed"],  _CENTER),
+        (7, _gpct(grand["Failed"]),  _STATUS_FONTS["Failed"],  _CENTER),
+        (8, grand["Error"],   _STATUS_FONTS["Error"],   _CENTER),
+        (9, _gpct(grand["Error"]),   _STATUS_FONTS["Error"],   _CENTER),
+        (10, grand["Undefined"], _STATUS_FONTS["Undefined"], _CENTER),
+        (11, _gpct(grand["Undefined"]), _STATUS_FONTS["Undefined"], _CENTER),
+    ]
+
+    for col, val, font, align in footer_data:
+        c = ms.cell(row=row, column=col, value=val)
+        c.font = font
+        c.border = _THIN_BORDER
+        c.alignment = align
+        c.fill = _TOTAL_FILL
+
+    ms.row_dimensions[row].height = 26
+
+    # ───────────────────────────────────────────────────────────
+    # AUTO-WIDTH for Module column
+    # ───────────────────────────────────────────────────────────
+    ms.column_dimensions["B"].width = max(max_mod_len + 4, 20)
+
+    # ── Freeze & print ────────────────────────────────────────
+    ms.freeze_panes = "B6"  # Freeze below header row
+    ms.print_options.horizontalCentered = True
+    ms.page_margins.left = 0.5
+    ms.page_margins.right = 0.5

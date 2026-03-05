@@ -59,8 +59,8 @@ class AppTheme:
     # ── Sidebar Menu Items (label, icon_char) ────────────────────
     MENU_ITEMS = [
         ("Dashboard",    "📊"),
-        ("PDF Analyzer", "📄"),
-        ("Excel Tools",  "📗"),
+        ("Report Analyzer", "📄"),
+        ("SystemTestListe Analyzer",  "📗"),
         ("Folder Mgmt",  "📁"),
         ("Reports",      "📈"),
         ("Settings",     "⚙️"),

@@ -3,9 +3,15 @@ PDF Analyzer page – browse a directory and analyze PDF files.
 """
 import os
 import shutil
+import subprocess
+import threading
 from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
+from src.gui.widgets.segmented_progress import SegmentedProgressBar
+from src.core.pdf_analyzer.module_separator import separate_by_module
+from src.core.pdf_analyzer.result_separator import separate_by_result
+from src.core.pdf_analyzer.report_generator import generate_report
 
 
 class PDFAnalyzerPage(ctk.CTkFrame):
@@ -126,20 +132,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             variable=self._dup_mode,
             value="ignore_duplicates",
         )
-        self._radio_ignore_dup.pack(anchor="w", padx=20, pady=(0, 12))
-
-        self._copy_btn = ctk.CTkButton(
-            self._copy_card,
-            text="📋  Copy PDFs to All_Available_Reports",
-            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
-            height=38,
-            corner_radius=T.BUTTON_CORNER,
-            fg_color=T.ACCENT_SECONDARY,
-            hover_color=T.SIDEBAR_BTN_HOVER,
-            text_color=T.TEXT_BRIGHT,
-            command=self._copy_pdfs,
-        )
-        self._copy_btn.pack(anchor="w", padx=20, pady=(0, 18))
+        self._radio_ignore_dup.pack(anchor="w", padx=20, pady=(0, 18))
 
         # ── Separator selection card ───────────────────────────
         self._sep_card = ctk.CTkFrame(
@@ -184,31 +177,98 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         )
         self._radio_result_sep.pack(anchor="w", padx=20, pady=(0, 18))
 
-        # ── Status / info area (pinned to bottom) ─────────────────
-        self._info_card = ctk.CTkFrame(
+        # ── Bottom bar: progress + status + Start button ──────────
+        self._bottom_card = ctk.CTkFrame(
             self,
             corner_radius=T.CARD_CORNER,
             fg_color=T.BG_CARD,
             border_width=1,
             border_color=T.BORDER_COLOR,
         )
-        self._info_card.pack(fill="x", side="bottom", padx=30, pady=(0, 20))
+        self._bottom_card.pack(fill="x", side="bottom", padx=30, pady=(0, 20))
 
-        ctk.CTkLabel(
-            self._info_card,
-            text="📄  PDF Files Found",
-            font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
-            text_color=T.TEXT_BRIGHT,
-        ).pack(anchor="w", padx=20, pady=(18, 8))
-
+        # Status label
         self._status_label = ctk.CTkLabel(
-            self._info_card,
+            self._bottom_card,
             text="  No directory selected. Click 'Browse' to choose a folder.",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             text_color=T.TEXT_SECONDARY,
             anchor="w",
         )
-        self._status_label.pack(anchor="w", padx=20, pady=(0, 18))
+        self._status_label.pack(anchor="w", padx=20, pady=(14, 6))
+
+        # Segmented progress bar
+        self._progress = SegmentedProgressBar(
+            self._bottom_card,
+            segments=[
+                {"label": "Copying",     "color": T.ACCENT_PRIMARY},
+                {"label": "Separating",  "color": T.ACCENT_WARNING},
+                {"label": "Report",      "color": T.ACCENT_SUCCESS},
+            ],
+        )
+        self._progress.pack(fill="x", padx=20, pady=(0, 10))
+
+        # Start button row (right-aligned)
+        btn_row = ctk.CTkFrame(self._bottom_card, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(0, 14))
+
+        self._start_btn = ctk.CTkButton(
+            btn_row,
+            text="▶  Start",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
+            height=40,
+            width=140,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SUCCESS,
+            hover_color="#00c853",
+            text_color=T.BG_DARK,
+            command=self._start_process,
+        )
+        self._start_btn.pack(side="right")
+
+        self._close_btn = ctk.CTkButton(
+            btn_row,
+            text="✖  Close",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
+            height=40,
+            width=140,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_DANGER,
+            hover_color="#d50000",
+            text_color=T.TEXT_BRIGHT,
+            command=self._close_app,
+        )
+        # Hidden initially – shown after process completes
+
+        self._open_btn = ctk.CTkButton(
+            btn_row,
+            text="📂  Open Folder",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
+            height=40,
+            width=150,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_PRIMARY,
+            hover_color=T.SIDEBAR_BTN_HOVER,
+            text_color=T.BG_DARK,
+            command=self._open_result_folder,
+        )
+        # Hidden initially – shown after process completes
+        self._result_folder: str = ""
+
+        self._open_excel_btn = ctk.CTkButton(
+            btn_row,
+            text="📊  Open Excel",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
+            height=40,
+            width=150,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SUCCESS,
+            hover_color="#00c853",
+            text_color=T.BG_DARK,
+            command=self._open_excel_report,
+        )
+        # Hidden initially – shown after process completes
+        self._report_path: str = ""
 
     # ── directory browser ───────────────────────────────────────
     def _browse_directory(self):
@@ -239,18 +299,53 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                 text=f"  Found {len(self._pdf_files)} PDF file(s) in: {directory}",
                 text_color=T.ACCENT_SUCCESS,
             )
-            self._copy_btn.configure(state="normal", text="📋  Copy PDFs to All_Available_Reports")
         else:
             self._status_label.configure(
                 text=f"  No PDF files found in: {directory}",
                 text_color=T.ACCENT_WARNING,
             )
 
-    def _copy_pdfs(self):
-        """Copy scanned PDF files to All_Available_Reports folder."""
-        if not self._pdf_files or not self._selected_dir:
+    # ── unified start process ───────────────────────────────────
+    def _start_process(self):
+        """Copy PDFs then run the selected separator in sequence (threaded)."""
+        if not self._selected_dir:
+            self._status_label.configure(
+                text="  Please select a directory first.",
+                text_color=T.ACCENT_WARNING,
+            )
+            return
+        if not self._pdf_files:
+            self._status_label.configure(
+                text="  No PDF files found. Browse a folder with PDFs.",
+                text_color=T.ACCENT_WARNING,
+            )
             return
 
+        # Disable button to prevent double-clicks
+        self._start_btn.configure(state="disabled", text="⏳  Processing...")
+        self._progress.reset()
+
+        # Launch work on a background thread
+        thread = threading.Thread(target=self._run_worker, daemon=True)
+        thread.start()
+
+    # ── thread-safe GUI helpers ─────────────────────────────────
+    def _ui(self, fn):
+        """Schedule *fn* on the main thread."""
+        self.after(0, fn)
+
+    def _set_status(self, text: str, color: str = T.TEXT_PRIMARY):
+        self._ui(lambda: self._status_label.configure(text=text, text_color=color))
+
+    def _set_seg(self, idx: int, value: float):
+        self._ui(lambda: self._progress.set_segment(idx, value))
+
+    # ── background worker ───────────────────────────────────────
+    def _run_worker(self):
+        """Heavy I/O work – runs on a daemon thread."""
+        total_files = len(self._pdf_files)
+
+        # ── Step 1: Copy PDFs to All_Available_Reports ──────────
         parent_dir = os.path.dirname(self._selected_dir)
         dest_dir = os.path.join(parent_dir, "All_Available_Reports")
         os.makedirs(dest_dir, exist_ok=True)
@@ -258,6 +353,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         mode = self._dup_mode.get()
         copied = 0
         skipped = 0
+        processed = 0
 
         for pdf_path in self._pdf_files:
             filename = os.path.basename(pdf_path)
@@ -266,9 +362,10 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             if os.path.exists(dest_path):
                 if mode == "ignore_duplicates":
                     skipped += 1
+                    processed += 1
+                    self._set_seg(0, processed / total_files)
                     continue
                 else:
-                    # Rename with _Dup, _Dup1, _Dup2, etc.
                     name, ext = os.path.splitext(filename)
                     dest_path = os.path.join(dest_dir, f"{name}_Dup{ext}")
                     counter = 1
@@ -278,12 +375,139 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
             shutil.copy2(pdf_path, dest_path)
             copied += 1
+            processed += 1
+            self._set_seg(0, processed / total_files)
+            self._set_status(f"  Copying... {processed}/{total_files} files")
 
-        status_parts = [f"Copied {copied} PDF file(s) to: {dest_dir}"]
+        # ── Step 2: Run selected separator ──────────────────────
+        self._set_status("  Running separator...")
+        self._set_seg(1, 0.05)
+
+        sep_mode = self._sep_mode.get()
+        sep_msg = ""
+        file_results: list[dict[str, str]] = []
+        results_count: dict[str, int] = {}
+
+        if sep_mode == "module_separator":
+            try:
+                # Detect results for the Excel report (per-file progress)
+                from src.core.pdf_analyzer.result_separator import _detect_result
+
+                for i, pdf_path in enumerate(self._pdf_files):
+                    fname = os.path.basename(pdf_path)
+                    target = os.path.join(dest_dir, fname)
+                    path_to_read = target if os.path.exists(target) else pdf_path
+                    detected = _detect_result(path_to_read)
+                    status = detected or "Unknown"
+                    file_results.append({"name": fname, "result": status})
+                    results_count[status] = results_count.get(status, 0) + 1
+                    pct = (i + 1) / total_files * 0.7
+                    self._set_seg(1, pct)
+                    self._set_status(f"  Detecting results... {i + 1}/{total_files} — {fname}")
+
+                # Module separation with per-file progress
+                def _mod_progress(cur, tot, name):
+                    self._set_seg(1, 0.7 + 0.3 * cur / tot)
+                    self._set_status(f"  Module separator... {cur}/{tot} — {name}")
+
+                result = separate_by_module(dest_dir, on_progress=_mod_progress)
+                parts = [f"Moved {result['moved']} PDF(s) into {len(result['modules'])} module folder(s)"]
+                if result["skipped"]:
+                    parts.append(f"({result['skipped']} skipped – no '-' in name)")
+                sep_msg = " | ".join(parts)
+                self._set_seg(1, 1.0)
+            except Exception as e:
+                self._set_status(f"  Separator error: {e}", T.ACCENT_DANGER)
+                self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
+                return
+        else:
+            try:
+                # Result separation with per-file progress
+                def _res_progress(cur, tot, name):
+                    pct = cur / tot * 0.5
+                    self._set_seg(1, pct)
+                    self._set_status(f"  Result separator... {cur}/{tot} — {name}")
+
+                result = separate_by_result(dest_dir, on_progress=_res_progress)
+                self._set_seg(1, 0.5)
+
+                breakdown = ", ".join(
+                    f"{k}: {v}" for k, v in sorted(result["results"].items())
+                )
+                parts = [f"Moved {result['moved']} PDF(s) → {breakdown or 'none'}"]
+                if result["skipped"]:
+                    parts.append(f"({result['skipped']} skipped – no result on page 2)")
+                sep_msg = " | ".join(parts)
+                file_results = result.get("file_results", [])
+                results_count = result.get("results", {})
+
+                # Module separation inside each result folder
+                folders_todo = ["Passed", "Failed", "Error", "Undefined"]
+                for fi, folder_name in enumerate(folders_todo):
+                    sub_dir = os.path.join(result["dest_root"], folder_name)
+                    if os.path.isdir(sub_dir):
+                        base_pct = 0.5 + 0.5 * fi / len(folders_todo)
+                        chunk = 0.5 / len(folders_todo)
+
+                        def _sub_mod_progress(cur, tot, name, _base=base_pct, _chunk=chunk):
+                            self._set_seg(1, _base + _chunk * cur / tot)
+                            self._set_status(
+                                f"  Module separator ({folder_name})... {cur}/{tot} — {name}"
+                            )
+
+                        mod_result = separate_by_module(sub_dir, on_progress=_sub_mod_progress)
+                        if mod_result["moved"]:
+                            sep_msg += (
+                                f" | {folder_name} → {mod_result['moved']} PDF(s) into "
+                                f"{len(mod_result['modules'])} module folder(s)"
+                            )
+                    self._set_seg(1, 0.5 + 0.5 * (fi + 1) / len(folders_todo))
+            except Exception as e:
+                self._set_status(f"  Separator error: {e}", T.ACCENT_DANGER)
+                self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
+                return
+
+        # ── Step 3: Generate Excel report ──────────────────────
+        self._set_status("  Generating Excel report...")
+        self._set_seg(2, 0.3)
+
+        report_name = ""
+        try:
+            report_path = generate_report(dest_dir, file_results, results_count)
+            report_name = os.path.basename(report_path)
+            self._report_path = report_path
+            self._set_seg(2, 1.0)
+        except Exception as e:
+            report_name = f"Report error: {e}"
+
+        # ── Finish on the main thread ───────────────────────────
+        copy_summary = f"Copied {copied}"
         if skipped:
-            status_parts.append(f"({skipped} duplicate(s) skipped)")
-        self._status_label.configure(
-            text=f"  {' '.join(status_parts)}",
-            text_color=T.ACCENT_SUCCESS,
-        )
-        self._copy_btn.configure(state="disabled", text="✅  Copied Successfully")
+            copy_summary += f", skipped {skipped}"
+
+        final_msg = f"  ✅  {copy_summary} PDF(s) → {dest_dir}  |  {sep_msg}  |  📊 {report_name}"
+        self._result_folder = dest_dir
+
+        def _finish():
+            self._status_label.configure(text=final_msg, text_color=T.ACCENT_SUCCESS)
+            self._start_btn.configure(state="normal", text="▶  Start")
+            self._open_btn.pack(side="left")
+            self._open_excel_btn.pack(side="left", padx=(10, 0))
+            self._close_btn.pack(side="right", padx=(0, 10))
+
+        self._ui(_finish)
+
+    def _close_app(self):
+        """Close the application window."""
+        self.winfo_toplevel().destroy()
+
+    def _open_result_folder(self):
+        """Open the result folder in the system file explorer."""
+        folder = self._result_folder
+        if folder and os.path.isdir(folder):
+            subprocess.Popen(["explorer", os.path.normpath(folder)])
+
+    def _open_excel_report(self):
+        """Open the generated Excel report."""
+        if self._report_path and os.path.isfile(self._report_path):
+            os.startfile(self._report_path)
