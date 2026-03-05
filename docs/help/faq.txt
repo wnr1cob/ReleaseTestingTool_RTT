@@ -1,0 +1,29 @@
+=====================================
+ Release Testing Tool - FAQ
+=====================================
+
+Frequently Asked Questions
+--------------------------
+
+Q: How do I create a new test plan?
+A: Go to File > New Test Plan, or press Ctrl+N.
+
+Q: What file formats are supported for import?
+A: The tool supports CSV, JSON, and Excel (.xlsx) files for importing
+   test plans and test data.
+
+Q: How do I configure application settings?
+A: Go to Tools > Settings or press Ctrl+Comma to open the Settings dialog.
+
+Q: Where are test results saved?
+A: Results are saved in the output/ directory by default. You can change
+   the output directory in the Settings dialog.
+
+Q: How do I update the application?
+A: Check for updates via Help > Check for Updates.
+
+Q: Can I run tests in parallel?
+A: Yes, enable parallel execution in Tools > Settings > Execution tab.
+
+Q: How do I report a bug?
+A: Use Help > Report Issue or contact the development team.

@@ -1,0 +1,18 @@
+# Core dependencies
+
+# PDF analysis
+PyPDF2>=3.0.1           # Read, split, merge PDFs
+pdfplumber>=0.10.3      # Extract text and tables from PDFs
+reportlab>=4.1.0        # Create and generate PDF files
+
+# Excel read/write
+openpyxl>=3.1.2         # Read/write Excel .xlsx files
+xlrd>=2.0.1             # Read legacy .xls files
+pandas>=2.0.3           # Data manipulation and Excel I/O
+
+# GUI (tkinter is in stdlib, add others as needed)
+customtkinter>=5.2.1    # Modern themed tkinter widgets
+
+# Utilities
+Pillow>=10.0.0          # Image handling
+pathlib2>=2.3.7;python_version<"3.4"  # Path utilities (stdlib in 3.4+)

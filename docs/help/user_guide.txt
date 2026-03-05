@@ -1,0 +1,59 @@
+=====================================
+ Release Testing Tool - User Guide
+=====================================
+
+Table of Contents
+-----------------
+1. Overview
+2. Main Window
+3. Creating Test Plans
+4. Running Tests
+5. Viewing Results
+6. Exporting Reports
+
+1. Overview
+-----------
+The Release Testing Tool provides an intuitive interface for managing
+release testing processes. It supports test plan creation, execution,
+and result reporting.
+
+2. Main Window
+--------------
+The main window consists of:
+- Menu Bar: Access all features via File, Edit, View, Tools, Help menus
+- Toolbar: Quick access buttons for common actions
+- Test Plan Panel: Displays the current test plan and test cases
+- Results Panel: Shows test execution results and status
+- Status Bar: Displays current application status and progress
+
+3. Creating Test Plans
+----------------------
+To create a new test plan:
+- Select File > New Test Plan
+- Fill in the test plan details
+- Add test cases using the Add Test Case button
+- Save the test plan
+
+4. Running Tests
+----------------
+To execute tests:
+- Open or select a test plan
+- Click the Run button or select Tools > Run Tests
+- Monitor progress in the Results Panel
+- Review results when execution completes
+
+5. Viewing Results
+------------------
+Test results are displayed in the Results Panel with:
+- Pass/Fail status for each test case
+- Execution time and timestamps
+- Error details for failed tests
+- Summary statistics
+
+6. Exporting Reports
+--------------------
+To export test results:
+- Select File > Export Report
+- Choose the export format (PDF, HTML, CSV, Excel)
+- Select the destination folder
+- Click Export

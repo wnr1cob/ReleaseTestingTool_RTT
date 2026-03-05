@@ -1,0 +1,38 @@
+=====================================
+ Keyboard Shortcuts
+=====================================
+
+General
+-------
+Ctrl+N          New Test Plan
+Ctrl+O          Open Test Plan
+Ctrl+S          Save
+Ctrl+Shift+S    Save As
+Ctrl+Q          Quit Application
+
+Editing
+-------
+Ctrl+Z          Undo
+Ctrl+Y          Redo
+Ctrl+C          Copy
+Ctrl+V          Paste
+Ctrl+A          Select All
+Delete          Delete Selected
+
+Testing
+-------
+F5              Run All Tests
+F6              Run Selected Test
+F7              Stop Execution
+Ctrl+R          Reset Results
+
+View
+----
+Ctrl+,          Open Settings
+Ctrl+L          Toggle Log Panel
+F11             Toggle Fullscreen
+
+Help
+----
+F1              Open Help
+Ctrl+F1         Context Help

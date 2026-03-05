@@ -1,0 +1,16 @@
+=====================================
+ Release Testing Tool - Help Guide
+=====================================
+
+Welcome to the Release Testing Tool!
+
+This application helps you manage and execute release testing workflows.
+
+Getting Started
+---------------
+1. Launch the application by running main.py
+2. Use the File menu to create a new test plan or open an existing one
+3. Configure your test parameters in the Settings dialog
+4. Execute tests and review results
+
+For more information, see the individual help files in this directory.

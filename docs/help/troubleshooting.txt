@@ -1,0 +1,40 @@
+=====================================
+ Troubleshooting Guide
+=====================================
+
+Common Issues
+-------------
+
+1. Application won't start
+   - Ensure Python 3.8+ is installed
+   - Run: pip install -r requirements.txt
+   - Check the log file in logs/ for error details
+
+2. Tests fail to execute
+   - Verify test plan format is correct
+   - Check network connectivity if tests require remote access
+   - Review test parameters in the Settings dialog
+
+3. Export fails
+   - Ensure the output directory exists and is writable
+   - Check available disk space
+   - Verify the selected export format is supported
+
+4. GUI display issues
+   - Try resetting the layout: View > Reset Layout
+   - Update your display drivers
+   - Check the display scaling settings in Tools > Settings
+
+Log Files
+---------
+Log files are stored in the logs/ directory.
+- app.log          : General application log
+- error.log        : Error-specific log
+- test_results.log : Test execution log
+
+Contact Support
+---------------
+If the issue persists, please contact support with:
+- Application version (Help > About)
+- Log files from the logs/ directory
+- Steps to reproduce the issue
