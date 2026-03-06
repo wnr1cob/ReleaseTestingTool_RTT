@@ -176,6 +176,31 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             value="result_separator",
         )
         self._radio_result_sep.pack(anchor="w", padx=20, pady=(0, 18))
+        if (0): # Use SystemTestListe Switch (hidden for now, can be enabled when STL integration is ready)
+            # ── SystemTestListe option card ────────────────────────
+            self._stl_card = ctk.CTkFrame(
+                self,
+                corner_radius=T.CARD_CORNER,
+                fg_color=T.BG_CARD,
+                border_width=1,
+                border_color=T.BORDER_COLOR,
+            )
+            self._stl_card.pack(fill="x", padx=30, pady=(0, 15))
+
+            self._use_stl_var = ctk.BooleanVar(value=False)
+
+            self._chk_use_stl = ctk.CTkCheckBox(
+                self._stl_card,
+                text="Use SystemTestListe",
+                font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
+                text_color=T.TEXT_PRIMARY,
+                fg_color=T.ACCENT_PRIMARY,
+                hover_color=T.SIDEBAR_BTN_HOVER,
+                variable=self._use_stl_var,
+                onvalue=True,
+                offvalue=False,
+            )
+            self._chk_use_stl.pack(anchor="w", padx=20, pady=(18, 18))
 
         # ── Bottom bar: progress + status + Start button ──────────
         self._bottom_card = ctk.CTkFrame(

@@ -21,6 +21,7 @@ from src.gui.pages.dashboard import DashboardPage
 from src.gui.pages.placeholder import PlaceholderPage
 from src.gui.pages.pdf_analyzer import PDFAnalyzerPage
 from src.gui.pages.excel_tools import ExcelToolsPage
+from src.gui.pages.systemtestliste_analyzer import SystemTestListePage
 
 
 class MainWindow:
@@ -94,7 +95,7 @@ class MainWindow:
         # Pre-build pages
         self._pages[0] = DashboardPage(self._content)
         self._pages[1] = PDFAnalyzerPage(self._content)
-        self._pages[2] = ExcelToolsPage(self._content)
+        self._pages[2] = SystemTestListePage(self._content)
 
         page_defs = [
             (3, "Folder Management", "📁"),
