@@ -2,43 +2,21 @@
 SystemTestListe Analyzer page – cross-reference PDF results against an Excel SystemTestListe.
 """
 import os
-import re
 import threading
 from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
-
-
-# Variant suffix pattern at the end of a tab name: _v3, _V14, _NA0, _NA5, _G5x, _G4x, etc.
-_VARIANT_RE = re.compile(r"(_(?:[vV]\d+|NA\d+|G\d+x))$")
-
-
-def _parse_sw_variant(tab_name: str) -> tuple[str, str]:
-    """Split a tab name into (sw_name, variant). Returns (tab_name, '') if no variant found."""
-    m = _VARIANT_RE.search(tab_name)
-    if m:
-        variant = m.group(1).lstrip("_")
-        sw = tab_name[: m.start()]
-        return sw, variant
-    return tab_name, ""
-
-
-def _cell_to_str(v) -> str:
-    """Convert any Excel cell value to a clean string.
-    - None / empty  → ''
-    - float that is a whole number (e.g. 42.0) → '42'
-    - datetime / date → ISO-formatted string
-    - everything else → str(v)
-    """
-    if v is None or v == "":
-        return ""
-    import datetime as _dt
-    if isinstance(v, float):
-        return str(int(v)) if v == int(v) else str(v)
-    if isinstance(v, (_dt.datetime, _dt.date)):
-        return v.isoformat()
-    return str(v).strip()
+from src.core.systemtestliste.utils import parse_sw_variant
+from src.core.systemtestliste.excel_reader import (
+    load_sheet_names,
+    read_sheet_data,
+    find_header_row,
+    filter_hilts_rows,
+    OUTPUT_COLS,
+)
+from src.core.systemtestliste.pdf_matcher import build_pdf_index, match_all_rows
+from src.core.systemtestliste.report_writer import write_stl_helper
 
 
 class SystemTestListePage(ctk.CTkFrame):
@@ -448,16 +426,7 @@ class SystemTestListePage(ctk.CTkFrame):
     def _load_tabs(self):
         """Read sheet names from the Excel file (background thread)."""
         try:
-            ext = os.path.splitext(self._excel_file)[1].lower()
-            if ext == ".xls":
-                import xlrd
-                wb = xlrd.open_workbook(self._excel_file)
-                tabs = wb.sheet_names()
-            else:
-                import openpyxl
-                wb = openpyxl.load_workbook(self._excel_file, read_only=True, data_only=True)
-                tabs = wb.sheetnames
-                wb.close()
+            tabs = load_sheet_names(self._excel_file)
         except Exception as e:
             self._ui(lambda: self._status_label.configure(
                 text=f"  Failed to read Excel: {e}",
@@ -527,7 +496,7 @@ class SystemTestListePage(ctk.CTkFrame):
                     border_width=0,
                 )
 
-        sw, variant = _parse_sw_variant(tab)
+        sw, variant = parse_sw_variant(tab)
         self._sw_name = sw
         self._variant = variant
 
@@ -596,40 +565,13 @@ class SystemTestListePage(ctk.CTkFrame):
     def _run_worker(self):
         """Analysis worker – runs on a daemon thread."""
         from datetime import datetime
-        import openpyxl as _openpyxl
-
-        HEADER_CANDIDATES = [
-            "ID", "Description", "Result", "Comment", "Problem Job",
-            "Expert judgement", "Function", "Test Instance", "Safety",
-            "ML", "Inspector", "Part of Concept",
-        ]
-        OUTPUT_COLS = ["ID", "Description", "Result"]
 
         # ── Step 1: Read selected sheet ─────────────────────────
         self._set_status(f"  Reading sheet '{self._selected_tab}' from Excel…")
         self._set_seg(0, 0.2)
 
         try:
-            ext = os.path.splitext(self._excel_file)[1].lower()
-            if ext == ".xls":
-                import xlrd
-                wb_in = xlrd.open_workbook(self._excel_file)
-                ws_xls = wb_in.sheet_by_name(self._selected_tab)
-                all_rows = [
-                    [_cell_to_str(ws_xls.cell_value(r, c))
-                     for c in range(ws_xls.ncols)]
-                    for r in range(ws_xls.nrows)
-                ]
-            else:
-                wb_in = _openpyxl.load_workbook(
-                    self._excel_file, read_only=True, data_only=True
-                )
-                ws_xlsx = wb_in[self._selected_tab]
-                all_rows = [
-                    [_cell_to_str(v) for v in row]
-                    for row in ws_xlsx.iter_rows(values_only=True)
-                ]
-                wb_in.close()
+            all_rows = read_sheet_data(self._excel_file, self._selected_tab)
         except Exception as e:
             self._set_status(f"  Failed to read Excel: {e}", T.ACCENT_DANGER)
             self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
@@ -637,32 +579,13 @@ class SystemTestListePage(ctk.CTkFrame):
 
         self._set_seg(0, 0.6)
 
-        # ── Find header row (most matching candidate columns) ───
-        candidates_lower = [c.lower() for c in HEADER_CANDIDATES]
-        best_idx, best_score = 0, 0
-        for i, row in enumerate(all_rows):
-            cells_lower = [str(c).strip().lower() for c in row]
-            score = sum(1 for cand in candidates_lower if cand in cells_lower)
-            if score > best_score:
-                best_score, best_idx = score, i
-
-        if best_score == 0:
-            self._set_status(
-                "  Could not find header row in the selected sheet.", T.ACCENT_DANGER
-            )
+        # ── Find header row ────────────────────────────────────
+        try:
+            best_idx, _header_row, col_map = find_header_row(all_rows)
+        except ValueError as e:
+            self._set_status(f"  {e}", T.ACCENT_DANGER)
             self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
             return
-
-        header_row = [str(c).strip() for c in all_rows[best_idx]]
-        header_lower = [c.lower() for c in header_row]
-
-        # Map output column names → source column indices
-        col_map: dict[str, int | None] = {}
-        for col_name in OUTPUT_COLS:
-            try:
-                col_map[col_name] = header_lower.index(col_name.lower())
-            except ValueError:
-                col_map[col_name] = None
 
         self._set_seg(0, 1.0)
 
@@ -670,233 +593,43 @@ class SystemTestListePage(ctk.CTkFrame):
         self._set_status("  Filtering HILTS rows…")
         self._set_seg(1, 0.3)
 
-        desc_idx = col_map.get("Description")
-        data_rows: list[list[str]] = []
-        for row in all_rows[best_idx + 1:]:
-            if not any(str(c).strip() for c in row):
-                continue  # skip fully empty rows
-            desc_val = (
-                str(row[desc_idx]).strip()
-                if desc_idx is not None and desc_idx < len(row)
-                else ""
-            )
-            if "HILTS" in desc_val.upper():
-                extracted = []
-                for col_name in OUTPUT_COLS:
-                    idx = col_map.get(col_name)
-                    val = str(row[idx]).strip() if idx is not None and idx < len(row) else ""
-
-                    # Result column: ensure only letters/specials (no digits)
-                    if col_name == "Result" and val:
-                        import re as _re
-                        val = _re.sub(r"\d", "", val).strip()
-
-                    extracted.append(val)
-                data_rows.append(extracted)
+        data_rows = filter_hilts_rows(all_rows, best_idx, col_map)
 
         self._set_seg(1, 1.0)
-        # ── Step 3: Create baseline STL_Helper Excel (part of Reading Excel)
-        self._set_status(f"  Creating baseline STL_Helper Excel ({len(data_rows)} row(s))…")
-        self._set_seg(0, 0.8)
 
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        output_dir = os.path.dirname(self._excel_file)
-        output_path = os.path.join(output_dir, f"STL_Helper_{timestamp}.xlsx")
-
-        try:
-            wb_out = _openpyxl.Workbook()
-            ws_out = wb_out.active
-            ws_out.title = "MainSheet"
-            out_cols = OUTPUT_COLS + ["PDFResult"]
-            ws_out.append(out_cols)
-
-            # write baseline rows (PDFResult empty)
-            for r in data_rows:
-                ws_out.append([r[0], r[1], r[2], ""])
-
-            wb_out.save(output_path)
-            self._set_seg(0, 1.0)
-        except Exception as e:
-            self._set_status(f"  Failed to create baseline output: {e}", T.ACCENT_DANGER)
-            self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
-            return
-
-        # ── Step 4: Scan PDFs and update the baseline file (Scanning PDFs segment)
-        self._set_status(f"  Scanning PDFs and updating results…")
+        # ── Step 3 & 4: Scan PDFs and collect results ───────────
+        self._set_status("  Scanning PDFs and updating results…")
         self._set_seg(1, 0.0)
 
-        # Build PDF file index (name without ext -> path)
-        pdf_index: list[tuple[str, str]] = []
-        for root, _dirs, files in os.walk(self._pdf_dir):
-            for f in files:
-                if f.lower().endswith('.pdf'):
-                    name = os.path.splitext(f)[0]
-                    pdf_index.append((name, os.path.join(root, f)))
-
-        # helper: fuzzy match using difflib and process files in threads
-        from difflib import SequenceMatcher
-        import pdfplumber
-        import concurrent.futures
-        from concurrent.futures import as_completed
-
-        KEYWORDS = ["passed", "failed", "error", "undefined", "not executed", "no result"]
-
+        pdf_index = build_pdf_index(self._pdf_dir)
+        sw_name = self._sw_name
+        variant = self._variant
         total = len(data_rows)
-        processed = 0
 
-        # worker: given (idx, row), return (idx, pdf_result, matched_path, score)
-        def _process_row(args):
-            idx, row = args
-            descr = row[1] if len(row) > 1 else ""
-            descr_norm = descr.strip().lower()
-            best = (None, 0.0)
-            for pname, ppath in pdf_index:
-                score = SequenceMatcher(None, descr_norm, pname.lower()).ratio()
-                if score > best[1]:
-                    best = (ppath, score)
-
-            pdf_result = "No report"
-            matched = best[0]
-            try:
-                if matched and best[1] >= 0.95:
-                    # choose page based on SW/Variant selection:
-                    # - SW + Variant selected -> check page 3 (index 2)
-                    # - SW selected -> check page 2 (index 1)
-                    pref_idx = 1
-                    try:
-                        if getattr(self, "_sw_name", None) and getattr(self, "_variant", None):
-                            pref_idx = 2
-                        elif getattr(self, "_sw_name", None):
-                            pref_idx = 1
-                    except Exception:
-                        pref_idx = 1
-
-                    with pdfplumber.open(matched) as pdf:
-                        txt = ""
-                        if len(pdf.pages) > pref_idx:
-                            txt = pdf.pages[pref_idx].extract_text() or ""
-                        else:
-                            # fallback to page 2 or page 1 if preferred not available
-                            if len(pdf.pages) >= 2:
-                                txt = pdf.pages[1].extract_text() or ""
-                            elif len(pdf.pages) >= 1:
-                                txt = pdf.pages[0].extract_text() or ""
-
-                    t = (txt or "").lower()
-                    found = None
-                    for kw in KEYWORDS:
-                        if kw in t:
-                            found = kw
-                            break
-
-                    if getattr(self, "_sw_name", None) and getattr(self, "_variant", None):
-                        # SW + Variant: return a data snippet from page 3 when no keyword found
-                        if found:
-                            pdf_result = found.title()
-                        else:
-                            # take first non-empty line as a short data summary
-                            first_line = ""
-                            for ln in (txt or "").splitlines():
-                                s = ln.strip()
-                                if s:
-                                    first_line = s
-                                    break
-                            pdf_result = f"Page3: {first_line[:120]}" if first_line else "Page3: No data"
-                    else:
-                        # SW only (or default): check for pass/fail keywords
-                        if found:
-                            pdf_result = found.title()
-                        else:
-                            pdf_result = "No Result"
-                else:
-                    pdf_result = "No report"
-            except Exception:
-                pdf_result = "No Result"
-
-            return (idx, pdf_result, matched, best[1])
-
-        # Process names one-by-one and update progress per name
-        processed = 0
-        for idx, row in enumerate(data_rows):
-            descr = row[1] if len(row) > 1 else ""
-            descr_norm = descr.strip().lower()
-            best = (None, 0.0)
-            for pname, ppath in pdf_index:
-                score = SequenceMatcher(None, descr_norm, pname.lower()).ratio()
-                if score > best[1]:
-                    best = (ppath, score)
-
-            pdf_result = "No report"
-            matched = best[0]
-            try:
-                if matched and best[1] >= 0.95:
-                    pref_idx = 1
-                    try:
-                        if getattr(self, "_sw_name", None) and getattr(self, "_variant", None):
-                            pref_idx = 2
-                        elif getattr(self, "_sw_name", None):
-                            pref_idx = 1
-                    except Exception:
-                        pref_idx = 1
-
-                    with pdfplumber.open(matched) as pdf:
-                        txt = ""
-                        if len(pdf.pages) > pref_idx:
-                            txt = pdf.pages[pref_idx].extract_text() or ""
-                        else:
-                            if len(pdf.pages) >= 2:
-                                txt = pdf.pages[1].extract_text() or ""
-                            elif len(pdf.pages) >= 1:
-                                txt = pdf.pages[0].extract_text() or ""
-
-                    t = (txt or "").lower()
-                    found = None
-                    for kw in KEYWORDS:
-                        if kw in t:
-                            found = kw
-                            break
-
-                    if getattr(self, "_sw_name", None) and getattr(self, "_variant", None):
-                        if found:
-                            pdf_result = found.title()
-                        else:
-                            first_line = ""
-                            for ln in (txt or "").splitlines():
-                                s = ln.strip()
-                                if s:
-                                    first_line = s
-                                    break
-                            pdf_result = f"Page3: {first_line[:120]}" if first_line else "Page3: No data"
-                    else:
-                        if found:
-                            pdf_result = found.title()
-                        else:
-                            pdf_result = "No Result"
-                else:
-                    pdf_result = "No report"
-            except Exception:
-                pdf_result = "No Result"
-
-            # update the existing workbook row: header at row 1, data starts row 2
-            out_row = 2 + idx
-            try:
-                ws_out.cell(row=out_row, column=4, value=pdf_result)
-            except Exception:
-                pass
-
-            processed = idx + 1
-            frac = processed / total if total else 1.0
+        def _pdf_progress(processed: int, total_: int, pdf_result: str) -> None:
+            frac = processed / total_ if total_ else 1.0
             self._set_seg(1, frac)
             self._set_status(
-                f"  Scanning PDFs {processed}/{total}  |  SW: {self._sw_name or '—'}  |  Variant: {self._variant or '—'}  |  Last: {pdf_result}",
+                f"  Scanning PDFs {processed}/{total_}  |  SW: {sw_name or '—'}"
+                f"  |  Variant: {variant or '—'}  |  Last: {pdf_result}",
                 T.TEXT_SECONDARY,
             )
 
-        # save final workbook with PDF results
+        pdf_results = match_all_rows(
+            data_rows, pdf_index,
+            sw_name=sw_name, variant=variant,
+            on_progress=_pdf_progress,
+        )
+
+        # ── Step 5: Write output Excel ───────────────────────────
+        output_dir = os.path.dirname(self._excel_file)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         try:
-            wb_out.save(output_path)
+            output_path = write_stl_helper(
+                output_dir, data_rows, pdf_results, OUTPUT_COLS, timestamp
+            )
         except Exception as e:
-            self._set_status(f"  Failed to save updated output: {e}", T.ACCENT_DANGER)
+            self._set_status(f"  Failed to save output: {e}", T.ACCENT_DANGER)
             self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
             return
 

@@ -2,13 +2,13 @@
 PDF Analyzer page – browse a directory and analyze PDF files.
 """
 import os
-import shutil
 import subprocess
 import threading
 from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
+from src.core.pdf_analyzer.file_copier import copy_pdfs
 from src.core.pdf_analyzer.module_separator import separate_by_module
 from src.core.pdf_analyzer.result_separator import separate_by_result
 from src.core.pdf_analyzer.report_generator import generate_report
@@ -373,36 +373,18 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         # ── Step 1: Copy PDFs to All_Available_Reports ──────────
         parent_dir = os.path.dirname(self._selected_dir)
         dest_dir = os.path.join(parent_dir, "All_Available_Reports")
-        os.makedirs(dest_dir, exist_ok=True)
 
         mode = self._dup_mode.get()
-        copied = 0
-        skipped = 0
-        processed = 0
 
-        for pdf_path in self._pdf_files:
-            filename = os.path.basename(pdf_path)
-            dest_path = os.path.join(dest_dir, filename)
+        def _copy_progress(processed: int, total: int) -> None:
+            self._set_seg(0, processed / total)
+            self._set_status(f"  Copying... {processed}/{total} files")
 
-            if os.path.exists(dest_path):
-                if mode == "ignore_duplicates":
-                    skipped += 1
-                    processed += 1
-                    self._set_seg(0, processed / total_files)
-                    continue
-                else:
-                    name, ext = os.path.splitext(filename)
-                    dest_path = os.path.join(dest_dir, f"{name}_Dup{ext}")
-                    counter = 1
-                    while os.path.exists(dest_path):
-                        dest_path = os.path.join(dest_dir, f"{name}_Dup{counter}{ext}")
-                        counter += 1
-
-            shutil.copy2(pdf_path, dest_path)
-            copied += 1
-            processed += 1
-            self._set_seg(0, processed / total_files)
-            self._set_status(f"  Copying... {processed}/{total_files} files")
+        copy_result = copy_pdfs(
+            self._pdf_files, dest_dir, mode=mode, on_progress=_copy_progress
+        )
+        copied = copy_result["copied"]
+        skipped = copy_result["skipped"]
 
         # ── Step 2: Run selected separator ──────────────────────
         self._set_status("  Running separator...")
