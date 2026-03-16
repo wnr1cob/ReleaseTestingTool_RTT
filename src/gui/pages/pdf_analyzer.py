@@ -228,7 +228,6 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             segments=[
                 {"label": "Copying",     "color": T.ACCENT_PRIMARY},
                 {"label": "Separating",  "color": T.ACCENT_WARNING},
-                {"label": "Report",      "color": T.ACCENT_SUCCESS},
             ],
         )
         self._progress.pack(fill="x", padx=20, pady=(0, 10))
@@ -476,14 +475,12 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         # ── Step 3: Generate Excel report ──────────────────────
         self._set_status("  Generating Excel report...")
-        self._set_seg(2, 0.3)
 
         report_name = ""
         try:
             report_path = generate_report(dest_dir, file_results, results_count)
             report_name = os.path.basename(report_path)
             self._report_path = report_path
-            self._set_seg(2, 1.0)
         except Exception as e:
             report_name = f"Report error: {e}"
 
