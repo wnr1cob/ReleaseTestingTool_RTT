@@ -46,7 +46,7 @@ class ExcelToolsPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             file_card,
-            text="📗  Select Excel File",
+            text="Select Excel File",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
@@ -70,7 +70,7 @@ class ExcelToolsPage(ctk.CTkFrame):
 
         self._browse_btn = ctk.CTkButton(
             browse_row,
-            text="📂  Browse",
+            text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             height=38,
             width=120,
@@ -94,7 +94,7 @@ class ExcelToolsPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._info_card,
-            text="📗  Excel File Info",
+            text="Excel File Info",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 8))

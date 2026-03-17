@@ -8,7 +8,20 @@ from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
-from src.core.pdf_analyzer.file_copier import copy_pdfs
+from src.core.pdf_analyzer.file_copier import copy_pdfs, load_canonical_map, smart_deduplicate
+from src.gui.dialogs.canonical_names_dialog import CanonicalNamesDialog
+
+# Resolve config path so it works both in dev and when packaged as a .exe.
+# When frozen by PyInstaller, write next to the .exe (sys.executable).
+# In dev, fall back to the project-root config/ folder.
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    # Running as a PyInstaller bundle – place config next to the .exe
+    _BASE_DIR = os.path.dirname(_sys.executable)
+else:
+    # Running from source
+    _BASE_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_CANONICAL_NAMES_PATH = os.path.join(_BASE_DIR, "config", "canonical_names.txt")
 from src.core.pdf_analyzer.module_separator import separate_by_module
 from src.core.pdf_analyzer.result_separator import separate_by_result
 from src.core.pdf_analyzer.report_generator import generate_report
@@ -54,7 +67,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             dir_card,
-            text="📂  Select Directory",
+            text="Select Directory",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
@@ -78,7 +91,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         self._browse_btn = ctk.CTkButton(
             browse_row,
-            text="📁  Browse",
+            text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             height=38,
             width=120,
@@ -102,13 +115,13 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._copy_card,
-            text="📋  Copy Options",
+            text="Copy Options",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
 
         # Duplicate handling radio buttons
-        self._dup_mode = ctk.StringVar(value="copy_duplicates")
+        self._dup_mode = ctk.StringVar(value="ignore_duplicates")
 
         self._radio_copy_dup = ctk.CTkRadioButton(
             self._copy_card,
@@ -119,20 +132,47 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             hover_color=T.SIDEBAR_BTN_HOVER,
             variable=self._dup_mode,
             value="copy_duplicates",
+            command=self._toggle_canonical_row,
         )
         self._radio_copy_dup.pack(anchor="w", padx=20, pady=(0, 6))
 
         self._radio_ignore_dup = ctk.CTkRadioButton(
             self._copy_card,
-            text="Ignore Duplicates (skip if already exists)",
+            text="Consolidate Duplicates (compares and keeps best result)",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             text_color=T.TEXT_PRIMARY,
             fg_color=T.ACCENT_PRIMARY,
             hover_color=T.SIDEBAR_BTN_HOVER,
             variable=self._dup_mode,
             value="ignore_duplicates",
+            command=self._toggle_canonical_row,
         )
-        self._radio_ignore_dup.pack(anchor="w", padx=20, pady=(0, 18))
+        self._radio_ignore_dup.pack(anchor="w", padx=20, pady=(0, 10))
+
+        # Edit canonical names row (shown only when Ignore Duplicates is selected)
+        self._edit_names_row = ctk.CTkFrame(self._copy_card, fg_color="transparent")
+        # Packed/hidden dynamically via _toggle_canonical_row
+        self._edit_names_row.pack(fill="x", padx=20, pady=(0, 18))
+
+        ctk.CTkLabel(
+            self._edit_names_row,
+            text="Canonical names are used to rename the best result file uniformly.",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_SMALL),
+            text_color=T.TEXT_SECONDARY,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            self._edit_names_row,
+            text="Edit Canonical Names",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_SMALL, "bold"),
+            height=28,
+            width=180,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SECONDARY,
+            hover_color="#5a1fc0",
+            text_color=T.TEXT_BRIGHT,
+            command=self._open_canonical_names_editor,
+        ).pack(side="right")
 
         # ── Separator selection card ───────────────────────────
         self._sep_card = ctk.CTkFrame(
@@ -146,7 +186,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._sep_card,
-            text="✂️  Separator Selection",
+            text="Separator Selection",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
@@ -238,7 +278,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         self._start_btn = ctk.CTkButton(
             btn_row,
-            text="▶  Start",
+            text="Start",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
             height=40,
             width=140,
@@ -252,7 +292,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         self._close_btn = ctk.CTkButton(
             btn_row,
-            text="✖  Close",
+            text="Close",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
             height=40,
             width=140,
@@ -266,7 +306,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         self._open_btn = ctk.CTkButton(
             btn_row,
-            text="📂  Open Folder",
+            text="Open Folder",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
             height=40,
             width=150,
@@ -281,7 +321,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         self._open_excel_btn = ctk.CTkButton(
             btn_row,
-            text="📊  Open Excel",
+            text="Open Excel",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
             height=40,
             width=150,
@@ -346,7 +386,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             return
 
         # Disable button to prevent double-clicks
-        self._start_btn.configure(state="disabled", text="⏳  Processing...")
+        self._start_btn.configure(state="disabled", text="Processing...")
         self._progress.reset()
 
         # Launch work on a background thread
@@ -374,16 +414,47 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         dest_dir = os.path.join(parent_dir, "All_Available_Reports")
 
         mode = self._dup_mode.get()
+        # For ignore_duplicates, copy ALL files first (with _Dup suffix for
+        # same-name conflicts) so every variant lands in dest_dir for comparison.
+        copy_mode = "copy_duplicates" if mode == "ignore_duplicates" else mode
 
         def _copy_progress(processed: int, total: int) -> None:
             self._set_seg(0, processed / total)
             self._set_status(f"  Copying... {processed}/{total} files")
 
+        # Load canonical map early so copy_pdfs can use it for dest filename
+        canonical_map = load_canonical_map(_CANONICAL_NAMES_PATH)
+
         copy_result = copy_pdfs(
-            self._pdf_files, dest_dir, mode=mode, on_progress=_copy_progress
+            self._pdf_files, dest_dir, mode=copy_mode,
+            on_progress=_copy_progress, canonical_map=canonical_map
         )
         copied = copy_result["copied"]
         skipped = copy_result["skipped"]
+
+        # ── Step 1b: Smart deduplication (ignore_duplicates mode) ──────────
+        dedup_summary = ""
+        if mode == "ignore_duplicates":
+            self._set_status("  Deduplicating by test ID (keeping best result)...")
+            # canonical_map already loaded above
+
+            def _dedup_progress(cur: int, tot: int, test_id: str) -> None:
+                self._set_seg(0, cur / tot)
+                self._set_status(f"  Deduplicating... {cur}/{tot} — {test_id}")
+
+            dedup_result = smart_deduplicate(
+                dest_dir, canonical_map, on_progress=_dedup_progress
+            )
+            parts = []
+            if dedup_result["removed"]:
+                parts.append(f"removed {dedup_result['removed']} duplicate(s)")
+            if dedup_result["renamed"]:
+                parts.append(f"renamed {dedup_result['renamed']} to canonical")
+            if dedup_result["unmatched"]:
+                parts.append(f"{dedup_result['unmatched']} unmatched")
+            dedup_summary = " | ".join(parts) if parts else "no duplicates found"
+        else:
+            pass  # canonical_map already loaded above (before copy step)
 
         # ── Step 2: Run selected separator ──────────────────────
         self._set_status("  Running separator...")
@@ -476,9 +547,31 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         # ── Step 3: Generate Excel report ──────────────────────
         self._set_status("  Generating Excel report...")
 
+        # Apply canonical names to file_results so the Excel shows uniform names
+        from src.core.pdf_analyzer.file_copier import _extract_test_id
+        file_summaries: list[dict[str, str]] = []
+        def _apply_canonical(results: list[dict[str, str]]) -> list[dict[str, str]]:
+            mapped = []
+            for entry in results:
+                name = entry["name"]
+                stem = os.path.splitext(name)[0]
+                tid = _extract_test_id(stem)
+                canonical = canonical_map.get(tid) if tid else None
+                final = canonical if canonical else stem
+                action = "Renamed" if canonical and canonical != stem else "As-Is"
+                file_summaries.append({
+                    "original": stem,
+                    "final": final,
+                    "action": action,
+                    "result": entry["result"],
+                })
+                mapped.append({"name": final, "result": entry["result"]})
+            return mapped
+        file_results = _apply_canonical(file_results)
+
         report_name = ""
         try:
-            report_path = generate_report(dest_dir, file_results, results_count)
+            report_path = generate_report(dest_dir, file_results, results_count, file_summaries)
             report_name = os.path.basename(report_path)
             self._report_path = report_path
         except Exception as e:
@@ -488,18 +581,31 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         copy_summary = f"Copied {copied}"
         if skipped:
             copy_summary += f", skipped {skipped}"
+        if dedup_summary:
+            copy_summary += f" | 🔍 {dedup_summary}"
 
         final_msg = f"  ✅  {copy_summary} PDF(s) → {dest_dir}  |  {sep_msg}  |  📊 {report_name}"
         self._result_folder = dest_dir
 
         def _finish():
             self._status_label.configure(text=final_msg, text_color=T.ACCENT_SUCCESS)
-            self._start_btn.configure(state="normal", text="▶  Start")
+            self._start_btn.configure(state="normal", text="Start")
             self._open_btn.pack(side="left")
             self._open_excel_btn.pack(side="left", padx=(10, 0))
             self._close_btn.pack(side="right", padx=(0, 10))
 
         self._ui(_finish)
+
+    def _toggle_canonical_row(self):
+        """Show or hide the canonical names row based on the selected dup mode."""
+        if self._dup_mode.get() == "ignore_duplicates":
+            self._edit_names_row.pack(fill="x", padx=20, pady=(0, 18))
+        else:
+            self._edit_names_row.pack_forget()
+
+    def _open_canonical_names_editor(self):
+        """Open the canonical names editor dialog."""
+        CanonicalNamesDialog(self.winfo_toplevel(), config_path=_CANONICAL_NAMES_PATH)
 
     def _close_app(self):
         """Close the application window."""

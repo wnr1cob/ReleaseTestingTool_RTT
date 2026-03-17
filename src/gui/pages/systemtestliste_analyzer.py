@@ -98,7 +98,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             card,
-            text="📗  SystemTestListe Excel File",
+            text="SystemTestListe Excel File",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
@@ -121,7 +121,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkButton(
             row,
-            text="📂  Browse",
+            text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             height=38,
             width=120,
@@ -145,7 +145,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._tab_card,
-            text="📑  Select Sheet / Tab",
+            text="Select Sheet / Tab",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(9, 5))
@@ -156,7 +156,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             filter_row,
-            text="🔎  Filter:",
+            text="Filter:",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             text_color=T.TEXT_SECONDARY,
         ).pack(side="left", padx=(0, 8))
@@ -213,7 +213,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._sw_card,
-            text="🏷️  Detected SW & Variant",
+            text="Detected SW & Variant",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(9, 6))
@@ -272,7 +272,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self._folder_card,
-            text="📂  PDF Reports Directory",
+            text="PDF Reports Directory",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
@@ -295,7 +295,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkButton(
             row,
-            text="📁  Browse",
+            text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
             height=38,
             width=120,
@@ -319,7 +319,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         ctk.CTkLabel(
             opt_card,
-            text="🔍  Verification Options",
+            text="Verification Options",
             font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(anchor="w", padx=20, pady=(18, 12))
@@ -383,7 +383,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         self._start_btn = ctk.CTkButton(
             btn_row,
-            text="▶  Start",
+            text="Start",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
             height=40,
             width=140,
@@ -557,7 +557,7 @@ class SystemTestListePage(ctk.CTkFrame):
             )
             return
 
-        self._start_btn.configure(state="disabled", text="⏳  Analyzing...")
+        self._start_btn.configure(state="disabled", text="Analyzing...")
         self._progress.reset()
         threading.Thread(target=self._run_worker, daemon=True).start()
 
@@ -574,7 +574,7 @@ class SystemTestListePage(ctk.CTkFrame):
             all_rows = read_sheet_data(self._excel_file, self._selected_tab)
         except Exception as e:
             self._set_status(f"  Failed to read Excel: {e}", T.ACCENT_DANGER)
-            self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
+            self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
         self._set_seg(0, 0.6)
@@ -584,7 +584,7 @@ class SystemTestListePage(ctk.CTkFrame):
             best_idx, _header_row, col_map = find_header_row(all_rows)
         except ValueError as e:
             self._set_status(f"  {e}", T.ACCENT_DANGER)
-            self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
+            self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
         self._set_seg(0, 1.0)
@@ -630,7 +630,7 @@ class SystemTestListePage(ctk.CTkFrame):
             )
         except Exception as e:
             self._set_status(f"  Failed to save output: {e}", T.ACCENT_DANGER)
-            self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
+            self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
         self._result_path = output_path
@@ -641,5 +641,5 @@ class SystemTestListePage(ctk.CTkFrame):
             f"{os.path.basename(output_path)}  |  Header found at row {best_idx + 1}"
         )
         self._set_status(final, T.ACCENT_SUCCESS)
-        self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
+        self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
 

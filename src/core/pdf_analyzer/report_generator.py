@@ -38,6 +38,7 @@ def generate_report(
     output_dir: str,
     file_results: list[dict[str, str]],
     results_count: dict[str, int],
+    file_summaries: list[dict[str, str]] | None = None,
 ) -> str:
     """
     Create the RTT Execution Excel report.
@@ -50,6 +51,9 @@ def generate_report(
         ``[{"name": "file.pdf", "result": "Passed"}, ...]``
     results_count : dict[str, int]
         ``{"Passed": 5, "Failed": 2, "Error": 1, "Undefined": 0}``
+    file_summaries : list[dict], optional
+        ``[{"original": "...", "final": "...", "action": "Renamed"|"As-Is", "result": "..."}]``
+        When provided, a **File Summary** sheet is added to the workbook.
 
     Returns
     -------
@@ -250,6 +254,12 @@ def generate_report(
     _build_modules_sheet(wb, file_results)
 
     # ───────────────────────────────────────────────────────────
+    # FILE SUMMARY TAB
+    # ───────────────────────────────────────────────────────────
+    if file_summaries:
+        _build_file_summary_sheet(wb, file_summaries)
+
+    # ───────────────────────────────────────────────────────────
     # SAVE
     # ───────────────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -437,3 +447,149 @@ def _build_modules_sheet(wb: Workbook, file_results: list[dict[str, str]]):
     ms.print_options.horizontalCentered = True
     ms.page_margins.left = 0.5
     ms.page_margins.right = 0.5
+
+
+# ═══════════════════════════════════════════════════════════════
+# FILE SUMMARY SHEET
+# ═══════════════════════════════════════════════════════════════
+
+def _build_file_summary_sheet(wb: Workbook, file_summaries: list[dict[str, str]]):
+    """
+    Add a **File Summary** worksheet showing per-file processing details.
+
+    Columns: # | Original Filename | Final Filename | Action | Result
+    """
+    from openpyxl.styles import PatternFill
+
+    _ACTION_FILL_RENAMED = PatternFill("solid", fgColor="E3F2FD")   # light blue
+    _ACTION_FILL_ASIS    = PatternFill("solid", fgColor="F5F5F5")   # light grey
+    _ACTION_FONT_RENAMED = Font(name="Segoe UI", size=10, bold=True,  color="0D47A1")
+    _ACTION_FONT_ASIS    = Font(name="Segoe UI", size=10, bold=False, color="616161")
+
+    fs = wb.create_sheet(title="File Summary")
+    fs.sheet_properties.tabColor = "7B2FF7"
+    fs.sheet_view.showGridLines = False
+
+    # Column widths
+    fs.column_dimensions["A"].width = 3   # margin
+    fs.column_dimensions["B"].width = 6   # #
+    fs.column_dimensions["G"].width = 3   # margin
+    # C, D, E, F will be auto-sized after data
+
+    last_col = 7  # G
+
+    # ── Title banner (rows 1-3) ─────────────────────────────
+    _fill_range(fs, 1, 3, 1, last_col, _TITLE_FILL)
+    fs.row_dimensions[1].height = 8
+
+    fs.merge_cells("B2:F2")
+    c = fs["B2"]
+    c.value = "File Processing Summary"
+    c.font = _TITLE_FONT
+    c.alignment = _LEFT_CENTER
+    fs.row_dimensions[2].height = 40
+
+    fs.merge_cells("B3:F3")
+    c = fs["B3"]
+    c.value = f"Generated: {datetime.now().strftime('%Y-%m-%d  %H:%M:%S')}"
+    c.font = _SUBTITLE_FONT
+    c.alignment = _LEFT_CENTER
+    fs.row_dimensions[3].height = 22
+
+    fs.row_dimensions[4].height = 8
+    _fill_range(fs, 4, 4, 1, last_col, _DARK_FILL)
+
+    # ── Table header (row 5) ────────────────────────────────
+    headers = [
+        (2, "#"),
+        (3, "Original Filename"),
+        (4, "Final Filename"),
+        (5, "Action"),
+        (6, "Result"),
+    ]
+    for col, txt in headers:
+        c = fs.cell(row=5, column=col, value=txt)
+        c.font = _TABLE_HEADER_FONT
+        c.fill = _TABLE_HEADER_FILL
+        c.border = _THIN_BORDER
+        c.alignment = _CENTER
+    fs.row_dimensions[5].height = 28
+
+    # ── Data rows ───────────────────────────────────────────
+    row = 6
+    max_orig_len  = len("Original Filename")
+    max_final_len = len("Final Filename")
+
+    sorted_summaries = sorted(file_summaries, key=lambda e: e["final"])
+
+    for idx, entry in enumerate(sorted_summaries, start=1):
+        original = entry["original"]
+        final    = entry["final"]
+        action   = entry["action"]
+        result   = entry["result"]
+        bg       = _ROW_EVEN if idx % 2 == 0 else _ROW_ODD
+
+        max_orig_len  = max(max_orig_len,  len(original))
+        max_final_len = max(max_final_len, len(final))
+
+        action_fill = _ACTION_FILL_RENAMED if action == "Renamed" else _ACTION_FILL_ASIS
+        action_font = _ACTION_FONT_RENAMED if action == "Renamed" else _ACTION_FONT_ASIS
+
+        row_data = [
+            (2, idx,      _BODY_FONT,                           _CENTER,     bg),
+            (3, original, _BODY_FONT,                           _LEFT_CENTER, bg),
+            (4, final,    _BODY_BOLD if action == "Renamed" else _BODY_FONT,
+                                                                 _LEFT_CENTER, bg),
+            (5, action,   action_font,                           _CENTER,     action_fill),
+            (6, result,   _STATUS_FONTS.get(result, _BODY_BOLD), _CENTER,     _STATUS_FILLS.get(result, bg)),
+        ]
+
+        for col, val, font, align, fill in row_data:
+            c = fs.cell(row=row, column=col, value=val)
+            c.font = font
+            c.border = _THIN_BORDER
+            c.alignment = align
+            c.fill = fill
+
+        fs.row_dimensions[row].height = 22
+        row += 1
+
+    # ── Footer ──────────────────────────────────────────────
+    total = len(file_summaries)
+    renamed_count = sum(1 for e in file_summaries if e["action"] == "Renamed")
+
+    fs.merge_cells(f"B{row}:D{row}")
+    c = fs.cell(row=row, column=2, value=f"  Total: {total} file(s)")
+    c.font = Font(name="Segoe UI", size=10, bold=True, color="01579B")
+    c.fill = _TOTAL_FILL
+    c.border = _THIN_BORDER
+    c.alignment = _LEFT_CENTER
+    for mc in [3, 4]:
+        fs.cell(row=row, column=mc).fill = _TOTAL_FILL
+        fs.cell(row=row, column=mc).border = _THIN_BORDER
+
+    c = fs.cell(row=row, column=5, value=f"Renamed: {renamed_count}")
+    c.font = _ACTION_FONT_RENAMED
+    c.fill = _TOTAL_FILL
+    c.border = _THIN_BORDER
+    c.alignment = _CENTER
+
+    c = fs.cell(row=row, column=6, value=f"As-Is: {total - renamed_count}")
+    c.font = _ACTION_FONT_ASIS
+    c.fill = _TOTAL_FILL
+    c.border = _THIN_BORDER
+    c.alignment = _CENTER
+
+    fs.row_dimensions[row].height = 26
+
+    # ── Auto-width ───────────────────────────────────────────
+    fs.column_dimensions["C"].width = max(max_orig_len  + 4, 20)
+    fs.column_dimensions["D"].width = max(max_final_len + 4, 20)
+    fs.column_dimensions["E"].width = 12  # Action
+    fs.column_dimensions["F"].width = 14  # Result
+
+    # ── Freeze & print ────────────────────────────────────────
+    fs.freeze_panes = "B6"
+    fs.print_options.horizontalCentered = True
+    fs.page_margins.left = 0.5
+    fs.page_margins.right = 0.5
