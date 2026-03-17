@@ -1,0 +1,42 @@
+# Python bytecode cache — never commit these
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+*.whl
+
+# Logs generated at runtime
+logs/*.log
+logs/*.txt
+!logs/README.txt
+
+# Output folder (runtime-generated files)
+output/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.vscode/settings.json
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
