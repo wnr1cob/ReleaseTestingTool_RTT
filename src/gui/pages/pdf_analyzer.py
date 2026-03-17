@@ -163,7 +163,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         ctk.CTkButton(
             self._edit_names_row,
-            text="Edit Canonical Names",
+            text="Edit TestCase Names",
             font=(T.FONT_FAMILY, T.FONT_SIZE_SMALL, "bold"),
             height=28,
             width=180,

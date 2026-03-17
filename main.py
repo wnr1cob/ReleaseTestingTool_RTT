@@ -14,8 +14,11 @@ from src.gui.main_window import MainWindow
 
 def main():
     """Application entry point."""
-    app = MainWindow()
-    app.run()
+    try:
+        app = MainWindow()
+        app.run()
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

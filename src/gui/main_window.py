@@ -22,6 +22,7 @@ from src.gui.pages.placeholder import PlaceholderPage
 from src.gui.pages.pdf_analyzer import PDFAnalyzerPage
 from src.gui.pages.excel_tools import ExcelToolsPage
 from src.gui.pages.systemtestliste_analyzer import SystemTestListePage
+from src.gui.splash import SplashScreen
 
 
 class MainWindow:
@@ -33,15 +34,12 @@ class MainWindow:
         ctk.set_default_color_theme("blue")
 
         self.root = ctk.CTk()
-        self.root.title("⚡ Release Testing Tool")
+        self.root.title("Release Testing Tool")
         self.root.minsize(900, 550)
         self.root.configure(fg_color=T.BG_DARK)
 
-        # Dynamically set geometry to the full screen resolution
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-        self.root.geometry(f"{screen_w}x{screen_h}+0+0")
-        self.root.state("zoomed")
+        # Hide immediately — prevents any flash before build is complete
+        self.root.withdraw()
 
         # Try to set window icon (ignore if file missing)
         try:
@@ -51,15 +49,79 @@ class MainWindow:
 
         self._pages: dict[int, ctk.CTkFrame] = {}
         self._current_page: ctk.CTkFrame | None = None
+        self._splash: SplashScreen | None = None
 
-        self._build_layout()
-        self._show_page(0)  # start on Dashboard
+        # Give Tk a single tick to settle before showing the splash
+        self.root.after(50, self._start_build)
 
-        # Kick off a demo progress animation after the window renders
-        self.root.after(600, self._pages[0].demo_progress)
+    # ── splash-driven incremental build ─────────────────────────
+    def _start_build(self):
+        """Show splash then kick off incremental page building."""
+        self._splash = SplashScreen(self.root)
+        self.root.after(20, self._build_step, 0)
 
-    # ── layout construction ─────────────────────────────────────
-    def _build_layout(self):
+    def _build_step(self, step: int):
+        """Build one component per call so the splash can update."""
+        s = self._splash
+
+        try:
+            if step == 0:
+                s.set_progress(0.10, "Initializing UI…")
+                self._build_shell()
+                self.root.after(20, self._build_step, 1)
+
+            elif step == 1:
+                s.set_progress(0.35, "Loading Dashboard…")
+                self._pages[0] = DashboardPage(self._content)
+                self.root.after(20, self._build_step, 2)
+
+            elif step == 2:
+                s.set_progress(0.60, "Loading PDF Analyzer…")
+                self._pages[1] = PDFAnalyzerPage(self._content)
+                self.root.after(20, self._build_step, 3)
+
+            elif step == 3:
+                s.set_progress(0.80, "Loading System Test List…")
+                self._pages[2] = SystemTestListePage(self._content)
+                self.root.after(20, self._build_step, 4)
+
+            elif step == 4:
+                s.set_progress(0.95, "Loading remaining pages…")
+                page_defs = [
+                    (3, "Folder Management", ""),
+                    (4, "Reports",           ""),
+                    (5, "Settings",          ""),
+                ]
+                for idx, title, icon in page_defs:
+                    self._pages[idx] = PlaceholderPage(self._content, title=title, icon=icon)
+                self.root.after(20, self._build_step, 5)
+
+            elif step == 5:
+                s.set_progress(1.0, "Ready!")
+                self.root.after(250, self._finish_build)
+
+        except KeyboardInterrupt:
+            # Python 3.14 raises KeyboardInterrupt through tkinter callbacks;
+            # swallow it and keep the build chain alive.
+            self.root.after(20, self._build_step, step)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            # Don't leave the user stuck on the splash — finish anyway
+            s.set_progress(1.0, f"Warning: {exc}")
+            self.root.after(800, self._finish_build)
+
+    def _finish_build(self):
+        """Close splash, reveal and maximise the main window."""
+        if self._splash:
+            self._splash.close()
+            self._splash = None
+        self._show_page(0)
+        self.root.deiconify()
+        self.root.state("zoomed")
+
+    # ── shell construction (sidebar / header / content) ─────────
+    def _build_shell(self):
         # Sidebar (left)
         self._sidebar = Sidebar(self.root, on_select_callback=self._show_page)
         self._sidebar.pack(side="left", fill="y")
@@ -92,19 +154,6 @@ class MainWindow:
         self._status_bar = StatusBar(right)
         self._status_bar.pack(fill="x", side="bottom")
 
-        # Pre-build pages
-        self._pages[0] = DashboardPage(self._content)
-        self._pages[1] = PDFAnalyzerPage(self._content)
-        self._pages[2] = SystemTestListePage(self._content)
-
-        page_defs = [
-            (3, "Folder Management", "📁"),
-            (4, "Reports", "📈"),
-            (5, "Settings", "⚙️"),
-        ]
-        for idx, title, icon in page_defs:
-            self._pages[idx] = PlaceholderPage(self._content, title=title, icon=icon)
-
     # ── page switching ──────────────────────────────────────────
     def _show_page(self, index: int):
         if self._current_page is not None:
@@ -124,4 +173,7 @@ class MainWindow:
     # ── run ─────────────────────────────────────────────────────
     def run(self):
         """Launch the main event loop."""
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        except KeyboardInterrupt:
+            pass
