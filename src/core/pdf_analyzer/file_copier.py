@@ -7,12 +7,14 @@ copy_pdfs(pdf_files, dest_dir, mode, on_progress)
     Copy a list of PDF files into *dest_dir* and return a summary dict.
 
 load_canonical_map(config_path)
-    Load {test_id: canonical_name} from a canonical_names.txt file.
+    Load {test_id: canonical_name} from canonical_names.json (or .txt with
+    auto-migration to JSON on first use).
 
 smart_deduplicate(dest_dir, canonical_map, on_progress)
     Group PDFs in dest_dir by test ID, keep the best result, rename to
     the canonical name when available.
 """
+import json
 import os
 import re
 import shutil
@@ -147,14 +149,44 @@ def _extract_test_id(filename: str) -> str | None:
 
 
 def load_canonical_map(config_path: str) -> dict[str, str]:
-    """Read *config_path* (canonical_names.txt) and return ``{test_id: canonical_name}``.
+    """Return ``{test_id: canonical_name}`` from *config_path*.
 
-    Lines starting with ``#`` and blank lines are ignored.
+    Accepts two formats
+    -------------------
+    ``.json``  (preferred) – a ``{test_id: full_name}`` dict stored as JSON.
+    ``.txt``   (legacy)    – one name per line, ``#`` lines ignored.
+
+    Auto-migration
+    --------------
+    When *config_path* ends with ``.json`` but only the old ``.txt``
+    sibling exists, the .txt is read, converted to JSON and written to
+    the .json path automatically.  The original .txt is kept as
+    ``canonical_names.txt.bak`` so nothing is lost.
     """
     canonical_map: dict[str, str] = {}
-    if not os.path.isfile(config_path):
+
+    json_path = config_path if config_path.endswith(".json") else None
+    txt_path  = (
+        os.path.splitext(config_path)[0] + ".txt"
+        if config_path.endswith(".json")
+        else config_path
+    )
+
+    # ── Try reading JSON first ──────────────────────────────────
+    if json_path and os.path.isfile(json_path):
+        try:
+            with open(json_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                return {str(k): str(v) for k, v in data.items()}
+        except (json.JSONDecodeError, OSError):
+            pass  # fall through to txt
+
+    # ── Fall back to .txt (and auto-migrate if json_path is set) ─
+    if not os.path.isfile(txt_path):
         return canonical_map
-    with open(config_path, encoding="utf-8") as fh:
+
+    with open(txt_path, encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line or line.startswith("#"):
@@ -162,6 +194,19 @@ def load_canonical_map(config_path: str) -> dict[str, str]:
             test_id = _extract_test_id(line)
             if test_id:
                 canonical_map[test_id] = line
+
+    # Auto-migrate: write JSON and rename .txt → .txt.bak
+    if json_path and canonical_map:
+        try:
+            os.makedirs(os.path.dirname(json_path) or ".", exist_ok=True)
+            with open(json_path, "w", encoding="utf-8") as fh:
+                json.dump(canonical_map, fh, indent=4, ensure_ascii=False)
+            bak_path = txt_path + ".bak"
+            if not os.path.exists(bak_path):
+                shutil.copy2(txt_path, bak_path)
+        except OSError:
+            pass  # migration is best-effort; original .txt still works
+
     return canonical_map
 
 

@@ -77,7 +77,7 @@ class ExcelToolsPage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_SUCCESS,
             hover_color=T.SIDEBAR_BTN_HOVER,
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._browse_file,
         )
         self._browse_btn.pack(side="right")

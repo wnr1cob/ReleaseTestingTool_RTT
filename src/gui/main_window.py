@@ -22,15 +22,21 @@ from src.gui.pages.placeholder import PlaceholderPage
 from src.gui.pages.pdf_analyzer import PDFAnalyzerPage
 from src.gui.pages.excel_tools import ExcelToolsPage
 from src.gui.pages.systemtestliste_analyzer import SystemTestListePage
+from src.gui.pages.settings import SettingsPage
 from src.gui.splash import SplashScreen
+from src.utils.theme_manager import ThemeManager
 
 
 class MainWindow:
     """Top-level application window."""
 
     def __init__(self):
+        # ── Load and apply saved theme BEFORE any widget is created ─
+        self._theme_mgr = ThemeManager()
+        saved_theme = self._theme_mgr.load()
+        self._theme_mgr.apply(saved_theme)
+
         # ── customtkinter global appearance ─────────────────────
-        ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
         self.root = ctk.CTk()
@@ -87,13 +93,9 @@ class MainWindow:
 
             elif step == 4:
                 s.set_progress(0.95, "Loading remaining pages…")
-                page_defs = [
-                    (3, "Folder Management", ""),
-                    (4, "Reports",           ""),
-                    (5, "Settings",          ""),
-                ]
-                for idx, title, icon in page_defs:
-                    self._pages[idx] = PlaceholderPage(self._content, title=title, icon=icon)
+                self._pages[3] = PlaceholderPage(self._content, title="Folder Management", icon="")
+                self._pages[4] = PlaceholderPage(self._content, title="Reports", icon="")
+                self._pages[5] = SettingsPage(self._content, theme_mgr=self._theme_mgr)
                 self.root.after(20, self._build_step, 5)
 
             elif step == 5:

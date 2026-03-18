@@ -128,7 +128,7 @@ class SystemTestListePage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_SUCCESS,
             hover_color=T.SIDEBAR_BTN_HOVER,
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._browse_excel,
         ).pack(side="right")
 
@@ -302,7 +302,7 @@ class SystemTestListePage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_PRIMARY,
             hover_color=T.SIDEBAR_BTN_HOVER,
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._browse_directory,
         ).pack(side="right")
 
@@ -390,7 +390,7 @@ class SystemTestListePage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_SUCCESS,
             hover_color="#00c853",
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._start_analysis,
         )
         self._start_btn.pack(side="right")
@@ -477,6 +477,25 @@ class SystemTestListePage(ctk.CTkFrame):
                 btn.pack_forget()
 
     # ── Tab selection ───────────────────────────────────────────
+    def _on_theme_refresh(self) -> None:
+        """Re-apply tab highlight colors after a theme switch."""
+        if not self._tab_buttons:
+            return
+        for name, btn in self._tab_buttons.items():
+            if name == self._selected_tab:
+                btn.configure(
+                    fg_color=T.SIDEBAR_BTN_ACTIVE_BG,
+                    text_color=T.ACCENT_PRIMARY,
+                    border_width=1,
+                    border_color=T.ACCENT_PRIMARY,
+                )
+            else:
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=T.TEXT_PRIMARY,
+                    border_width=0,
+                )
+
     def _on_tab_select(self, tab: str):
         self._selected_tab = tab
 

@@ -21,7 +21,7 @@ if getattr(_sys, "frozen", False):
 else:
     # Running from source
     _BASE_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-_CANONICAL_NAMES_PATH = os.path.join(_BASE_DIR, "config", "canonical_names.txt")
+_CANONICAL_NAMES_PATH = os.path.join(_BASE_DIR, "config", "canonical_names.json")
 from src.core.pdf_analyzer.module_separator import separate_by_module
 from src.core.pdf_analyzer.result_separator import separate_by_result
 from src.core.pdf_analyzer.report_generator import generate_report
@@ -98,7 +98,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_PRIMARY,
             hover_color=T.SIDEBAR_BTN_HOVER,
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._browse_directory,
         )
         self._browse_btn.pack(side="right")
@@ -168,9 +168,9 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             height=28,
             width=180,
             corner_radius=T.BUTTON_CORNER,
-            fg_color=T.ACCENT_SECONDARY,
-            hover_color="#5a1fc0",
-            text_color=T.TEXT_BRIGHT,
+            fg_color=T.ACCENT_PRIMARY,
+            hover_color=T.SIDEBAR_BTN_HOVER,
+            text_color="#000000",
             command=self._open_canonical_names_editor,
         ).pack(side="right")
 
@@ -285,7 +285,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_SUCCESS,
             hover_color="#00c853",
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._start_process,
         )
         self._start_btn.pack(side="right")
@@ -313,7 +313,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_PRIMARY,
             hover_color=T.SIDEBAR_BTN_HOVER,
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._open_result_folder,
         )
         # Hidden initially – shown after process completes
@@ -328,7 +328,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             corner_radius=T.BUTTON_CORNER,
             fg_color=T.ACCENT_SUCCESS,
             hover_color="#00c853",
-            text_color=T.BG_DARK,
+            text_color="#000000",
             command=self._open_excel_report,
         )
         # Hidden initially – shown after process completes
