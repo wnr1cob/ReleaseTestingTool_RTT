@@ -1,5 +1,7 @@
 # Release Testing Tool
 
+**Current version: v1.3.4** — see [CHANGELOG.md](CHANGELOG.md) for full history.
+
 A Python-based tool for analyzing PDFs, reading/writing Excel sheets, and managing folder structures as part of release testing workflows.
 
 ## Project Structure
@@ -64,6 +66,12 @@ ReleaseTestingTool/
    python main.py
    ```
 
+## Developer Reference
+
+See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for colour presets, widget
+catalogue, page-wiring recipe, splash config, versioning policy, and coding
+conventions.
+
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
