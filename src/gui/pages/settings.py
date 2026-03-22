@@ -6,6 +6,7 @@ import sys
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.utils.theme_manager import ThemeManager
+from src.gui.widgets.hover_button import RttButton
 
 
 class SettingsPage(ctk.CTkFrame):
@@ -116,7 +117,7 @@ class SettingsPage(ctk.CTkFrame):
         )
         self._feedback_label.pack(side="left")
 
-        self._apply_btn = ctk.CTkButton(
+        self._apply_btn = RttButton(
             action_bar,
             text="Apply & Restart",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),

@@ -8,6 +8,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
+from src.gui.widgets.hover_button import RttButton
 from src.core.pdf_analyzer.file_copier import copy_pdfs, load_canonical_map, smart_deduplicate
 from src.gui.dialogs.canonical_names_dialog import CanonicalNamesDialog
 
@@ -89,7 +90,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         )
         self._path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        self._browse_btn = ctk.CTkButton(
+        self._browse_btn = RttButton(
             browse_row,
             text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
@@ -161,7 +162,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             text_color=T.TEXT_SECONDARY,
         ).pack(side="left")
 
-        ctk.CTkButton(
+        RttButton(
             self._edit_names_row,
             text="Edit TestCase Names",
             font=(T.FONT_FAMILY, T.FONT_SIZE_SMALL, "bold"),
@@ -276,7 +277,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         btn_row = ctk.CTkFrame(self._bottom_card, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(0, 14))
 
-        self._start_btn = ctk.CTkButton(
+        self._start_btn = RttButton(
             btn_row,
             text="Start",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
@@ -290,7 +291,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         )
         self._start_btn.pack(side="right")
 
-        self._close_btn = ctk.CTkButton(
+        self._close_btn = RttButton(
             btn_row,
             text="Close",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
@@ -304,7 +305,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         )
         # Hidden initially – shown after process completes
 
-        self._open_btn = ctk.CTkButton(
+        self._open_btn = RttButton(
             btn_row,
             text="Open Folder",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
@@ -319,7 +320,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         # Hidden initially – shown after process completes
         self._result_folder: str = ""
 
-        self._open_excel_btn = ctk.CTkButton(
+        self._open_excel_btn = RttButton(
             btn_row,
             text="Open Excel",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),

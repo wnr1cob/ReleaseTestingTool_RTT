@@ -64,54 +64,94 @@ class MainWindow:
     def _start_build(self):
         """Show splash then kick off incremental page building."""
         self._splash = SplashScreen(self.root)
-        self.root.after(20, self._build_step, 0)
+        self.root.after(80, self._build_step, 0)
 
     def _build_step(self, step: int):
-        """Build one component per call so the splash can update."""
-        s = self._splash
+        """
+        Build one component per call so the splash can update.
+        Each step fires after a ~90 ms delay, giving the event loop
+        time to repaint the animated splash between steps.
+        """
+        s     = self._splash
+        DELAY = 90   # ms between steps — keeps animation smooth
 
         try:
             if step == 0:
-                s.set_progress(0.10, "Initializing UI…")
-                self._build_shell()
-                self.root.after(20, self._build_step, 1)
+                s.set_progress(0.03, "Reading configuration files")
+                self.root.after(DELAY, self._build_step, 1)
 
             elif step == 1:
-                s.set_progress(0.35, "Loading Dashboard…")
-                self._pages[0] = DashboardPage(self._content)
-                self.root.after(20, self._build_step, 2)
+                s.set_progress(0.08, "Applying theme palette")
+                self.root.after(DELAY, self._build_step, 2)
 
             elif step == 2:
-                s.set_progress(0.60, "Loading PDF Analyzer…")
-                self._pages[1] = PDFAnalyzerPage(self._content)
-                self.root.after(20, self._build_step, 3)
+                s.set_progress(0.14, "Initializing layout engine")
+                self._build_shell()
+                self.root.after(DELAY, self._build_step, 3)
 
             elif step == 3:
-                s.set_progress(0.80, "Loading System Test List…")
-                self._pages[2] = SystemTestListePage(self._content)
-                self.root.after(20, self._build_step, 4)
+                s.set_progress(0.20, "Building navigation sidebar")
+                self.root.after(DELAY, self._build_step, 4)
 
             elif step == 4:
-                s.set_progress(0.95, "Loading remaining pages…")
-                self._pages[3] = PlaceholderPage(self._content, title="Folder Management", icon="")
-                self._pages[4] = PlaceholderPage(self._content, title="Reports", icon="")
-                self._pages[5] = SettingsPage(self._content, theme_mgr=self._theme_mgr)
-                self.root.after(20, self._build_step, 5)
+                s.set_progress(0.27, "Mounting header and content area")
+                self.root.after(DELAY, self._build_step, 5)
 
             elif step == 5:
-                s.set_progress(1.0, "Ready!")
-                self.root.after(250, self._finish_build)
+                s.set_progress(0.34, "Loading Dashboard module")
+                self._pages[0] = DashboardPage(self._content)
+                self.root.after(DELAY, self._build_step, 6)
+
+            elif step == 6:
+                s.set_progress(0.44, "Registering event handlers")
+                self.root.after(DELAY, self._build_step, 7)
+
+            elif step == 7:
+                s.set_progress(0.53, "Loading Report Analyzer module")
+                self._pages[1] = PDFAnalyzerPage(self._content)
+                self.root.after(DELAY, self._build_step, 8)
+
+            elif step == 8:
+                s.set_progress(0.61, "Initializing file I/O handlers")
+                self.root.after(DELAY, self._build_step, 9)
+
+            elif step == 9:
+                s.set_progress(0.70, "Loading SystemTestListe Analyzer")
+                self._pages[2] = SystemTestListePage(self._content)
+                self.root.after(DELAY, self._build_step, 10)
+
+            elif step == 10:
+                s.set_progress(0.78, "Loading support modules")
+                self._pages[3] = PlaceholderPage(self._content, title="Folder Management", icon="")
+                self._pages[4] = PlaceholderPage(self._content, title="Reports", icon="")
+                self.root.after(DELAY, self._build_step, 11)
+
+            elif step == 11:
+                s.set_progress(0.86, "Loading Settings module")
+                self._pages[5] = SettingsPage(self._content, theme_mgr=self._theme_mgr)
+                self.root.after(DELAY, self._build_step, 12)
+
+            elif step == 12:
+                s.set_progress(0.93, "Verifying component integrity")
+                self.root.after(DELAY, self._build_step, 13)
+
+            elif step == 13:
+                s.set_progress(0.98, "Finalizing workspace")
+                self.root.after(DELAY, self._build_step, 14)
+
+            elif step == 14:
+                s.set_progress(1.0, "Workspace ready")
+                # Guarantee the splash is shown for at least 3.4 s total —
+                # this gives users time to read the loading log.
+                s.ensure_min_display(7500, self._finish_build)
 
         except KeyboardInterrupt:
-            # Python 3.14 raises KeyboardInterrupt through tkinter callbacks;
-            # swallow it and keep the build chain alive.
-            self.root.after(20, self._build_step, step)
+            self.root.after(DELAY, self._build_step, step)
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            # Don't leave the user stuck on the splash — finish anyway
             s.set_progress(1.0, f"Warning: {exc}")
-            self.root.after(800, self._finish_build)
+            s.ensure_min_display(1200, self._finish_build)
 
     def _finish_build(self):
         """Close splash, reveal and maximise the main window."""

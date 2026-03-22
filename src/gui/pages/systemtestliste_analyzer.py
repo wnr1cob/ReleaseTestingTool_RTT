@@ -7,6 +7,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
+from src.gui.widgets.hover_button import RttButton
 from src.core.systemtestliste.utils import parse_sw_variant
 from src.core.systemtestliste.excel_reader import (
     load_sheet_names,
@@ -119,7 +120,7 @@ class SystemTestListePage(ctk.CTkFrame):
         )
         self._excel_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        ctk.CTkButton(
+        RttButton(
             row,
             text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
@@ -177,7 +178,7 @@ class SystemTestListePage(ctk.CTkFrame):
         )
         self._filter_entry.pack(side="left", fill="x", expand=True)
 
-        ctk.CTkButton(
+        RttButton(
             filter_row,
             text="✖",
             width=34,
@@ -293,7 +294,7 @@ class SystemTestListePage(ctk.CTkFrame):
         )
         self._dir_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        ctk.CTkButton(
+        RttButton(
             row,
             text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
@@ -381,7 +382,7 @@ class SystemTestListePage(ctk.CTkFrame):
         btn_row = ctk.CTkFrame(self._bottom_card, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(0, 14))
 
-        self._start_btn = ctk.CTkButton(
+        self._start_btn = RttButton(
             btn_row,
             text="Start",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
@@ -446,7 +447,7 @@ class SystemTestListePage(ctk.CTkFrame):
         self._filter_var.set("")
 
         for tab in self._all_tabs:
-            btn = ctk.CTkButton(
+            btn = RttButton(
                 self._tab_list_frame,
                 text=tab,
                 font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),

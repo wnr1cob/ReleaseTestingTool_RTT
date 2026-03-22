@@ -3,6 +3,7 @@ Sidebar navigation widget – CCleaner-style vertical menu.
 """
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
+from src.gui.widgets.hover_button import RttButton
 
 
 class Sidebar(ctk.CTkFrame):
@@ -45,7 +46,7 @@ class Sidebar(ctk.CTkFrame):
 
     def _build_menu(self):
         for idx, (label, icon) in enumerate(T.MENU_ITEMS):
-            btn = ctk.CTkButton(
+            btn = RttButton(
                 self,
                 text=f"  {icon}   {label}",
                 font=(T.FONT_FAMILY, T.FONT_SIZE_SIDEBAR),

@@ -5,6 +5,7 @@ import os
 from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
+from src.gui.widgets.hover_button import RttButton
 
 
 class ExcelToolsPage(ctk.CTkFrame):
@@ -68,7 +69,7 @@ class ExcelToolsPage(ctk.CTkFrame):
         )
         self._path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        self._browse_btn = ctk.CTkButton(
+        self._browse_btn = RttButton(
             browse_row,
             text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
