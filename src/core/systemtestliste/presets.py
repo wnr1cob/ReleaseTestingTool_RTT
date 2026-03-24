@@ -1,0 +1,163 @@
+"""
+Presets load / save helpers for the SystemTestListe analyser.
+
+Presets are stored in ``config/presets.json`` and contain:
+
+  sw_extraction
+    page     – 1-based page number to extract the SW name from.
+    patterns – list of {label, regex} dicts (tried in order).
+
+  result_extraction
+    page     – 1-based page number to find result keywords on.
+    keywords – ordered list of keyword strings to search for.
+
+  variant_extraction
+    page     – 1-based page number to scan for SWFL codes.
+    entries  – list of {variant, swfl} dicts mapping SWFL codes to variant
+               labels (e.g. V35 ↔ SWFL-0000DE16).
+
+Public API
+----------
+load_presets(path) → dict
+save_presets(presets, path)
+variant_map_from_presets(presets) → dict[str, str]   # {SWFL_UPPER: variant}
+sw_patterns_from_presets(presets)  → list[str]       # regex strings
+result_keywords_from_presets(presets) → list[str]    # keyword strings (lowercase)
+"""
+import copy
+import json
+import os
+
+# ── default location ────────────────────────────────────────────
+_CONFIG_DIR = os.path.normpath(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "..", "config",
+    )
+)
+PRESETS_PATH = os.path.join(_CONFIG_DIR, "presets.json")
+
+# ── canonical defaults (used when file is missing / corrupt) ───
+DEFAULT_PRESETS: dict = {
+    "sw_extraction": {
+        "page": 3,
+        "patterns": [
+            {
+                "label": "Default SW Pattern",
+                "regex": r"\d{3}_\d{3}_[^_\s]+_\d{2}_\d{2}_[A-Za-z]\d{2}",
+            }
+        ],
+    },
+    "result_extraction": {
+        "page": 3,
+        "keywords": ["passed", "failed", "error", "undefined", "not executed", "no result"],
+    },
+    "variant_extraction": {
+        "page": 3,
+        "entries": [],
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════
+# I/O
+# ═══════════════════════════════════════════════════════════════
+
+def load_presets(path: str | None = None) -> dict:
+    """Load presets from *path* (default: ``config/presets.json``).
+
+    Falls back to :data:`DEFAULT_PRESETS` on any I/O or JSON error.
+    The returned dict is always a deep copy so callers may mutate it
+    freely without affecting the cached defaults.
+    """
+    fpath = path or PRESETS_PATH
+    try:
+        with open(fpath, encoding="utf-8") as fh:
+            data = json.load(fh)
+        # Merge with defaults to handle partial / old files gracefully
+        result = copy.deepcopy(DEFAULT_PRESETS)
+        if "sw_extraction" in data:
+            result["sw_extraction"].update(data["sw_extraction"])
+        if "result_extraction" in data:
+            result["result_extraction"].update(data["result_extraction"])
+        if "variant_extraction" in data:
+            result["variant_extraction"].update(data["variant_extraction"])
+        return result
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return copy.deepcopy(DEFAULT_PRESETS)
+
+
+def save_presets(presets: dict, path: str | None = None) -> None:
+    """Persist *presets* to *path* (default: ``config/presets.json``)."""
+    fpath = path or PRESETS_PATH
+    os.makedirs(os.path.dirname(fpath), exist_ok=True)
+    with open(fpath, "w", encoding="utf-8") as fh:
+        json.dump(presets, fh, indent=2, ensure_ascii=False)
+
+
+# ═══════════════════════════════════════════════════════════════
+# HELPERS – derive runtime objects from a presets dict
+# ═══════════════════════════════════════════════════════════════
+
+def variant_map_from_presets(presets: dict) -> dict[str, str]:
+    """Return ``{SWFL_UPPER: variant_label}`` from presets.
+
+    When multiple entries share the same SWFL code the first one wins.
+    """
+    vm: dict[str, str] = {}
+    for entry in presets.get("variant_extraction", {}).get("entries", []):
+        swfl = entry.get("swfl", "").strip().upper()
+        variant = entry.get("variant", "").strip()
+        if swfl and variant:
+            vm.setdefault(swfl, variant)
+    return vm
+
+
+def sw_patterns_from_presets(presets: dict) -> list[str]:
+    """Return a list of regex strings from the SW patterns in *presets*."""
+    return [
+        p["regex"]
+        for p in presets.get("sw_extraction", {}).get("patterns", [])
+        if p.get("regex")
+    ]
+
+
+def result_keywords_from_presets(presets: dict) -> list[str]:
+    """Return the ordered list of result keywords (lowercase) from *presets*.
+
+    Falls back to the built-in keyword list when the presets entry is empty.
+    """
+    kws = [
+        k.strip().lower()
+        for k in presets.get("result_extraction", {}).get("keywords", [])
+        if k.strip()
+    ]
+    if kws:
+        return kws
+    return ["passed", "failed", "error", "undefined", "not executed", "no result"]
+
+
+def import_variant_txt(txt_path: str) -> list[dict[str, str]]:
+    """Parse a *Variant_Info.txt* file and return a list of
+    ``{variant, swfl}`` dicts suitable for ``presets["variant_extraction"]["entries"]``.
+
+    Lines not matching ``<Variant> - <SWFL>`` are silently ignored.
+    """
+    entries: list[dict[str, str]] = []
+    try:
+        with open(txt_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(" - ", 1)
+                if len(parts) == 2:
+                    entries.append(
+                        {
+                            "variant": parts[0].strip(),
+                            "swfl": parts[1].strip().upper(),
+                        }
+                    )
+    except FileNotFoundError:
+        pass
+    return entries

@@ -22,6 +22,7 @@ from src.gui.pages.placeholder import PlaceholderPage
 from src.gui.pages.pdf_analyzer import PDFAnalyzerPage
 from src.gui.pages.excel_tools import ExcelToolsPage
 from src.gui.pages.systemtestliste_analyzer import SystemTestListePage
+from src.gui.pages.stl_presets import STLPresetsPage
 from src.gui.pages.settings import SettingsPage
 from src.gui.splash import SplashScreen
 from src.utils.theme_manager import ThemeManager
@@ -127,19 +128,24 @@ class MainWindow:
                 self.root.after(DELAY, self._build_step, 11)
 
             elif step == 11:
-                s.set_progress(0.86, "Loading Settings module")
-                self._pages[5] = SettingsPage(self._content, theme_mgr=self._theme_mgr)
+                s.set_progress(0.84, "Loading Presets module")
+                self._pages[5] = STLPresetsPage(self._content)
                 self.root.after(DELAY, self._build_step, 12)
 
             elif step == 12:
-                s.set_progress(0.93, "Verifying component integrity")
+                s.set_progress(0.91, "Loading Settings module")
+                self._pages[6] = SettingsPage(self._content, theme_mgr=self._theme_mgr)
                 self.root.after(DELAY, self._build_step, 13)
 
             elif step == 13:
-                s.set_progress(0.98, "Finalizing workspace")
+                s.set_progress(0.93, "Verifying component integrity")
                 self.root.after(DELAY, self._build_step, 14)
 
             elif step == 14:
+                s.set_progress(0.98, "Finalizing workspace")
+                self.root.after(DELAY, self._build_step, 15)
+
+            elif step == 15:
                 s.set_progress(1.0, "Workspace ready")
                 # Guarantee the splash is shown for at least 3.4 s total —
                 # this gives users time to read the loading log.

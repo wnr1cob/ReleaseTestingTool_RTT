@@ -64,7 +64,7 @@ class Sidebar(ctk.CTkFrame):
         # version label at bottom
         ctk.CTkLabel(
             self,
-            text="v1.3.4",
+            text="v2.1.2",
             font=(T.FONT_FAMILY, T.FONT_SIZE_SMALL),
             text_color=T.TEXT_SECONDARY,
         ).pack(side="bottom", pady=15)

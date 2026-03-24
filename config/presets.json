@@ -1,0 +1,87 @@
+{
+  "sw_extraction": {
+    "page": 3,
+    "patterns": [
+      {
+        "label": "Default SW Pattern",
+        "regex": "\\d{3}_\\d{3}_[^_\\s]+_\\d{2}_\\d{2}_[A-Za-z]\\d{2}"
+      }
+    ]
+  },
+  "result_extraction": {
+    "page": 2,
+    "keywords": [
+      "passed",
+      "failed",
+      "error",
+      "undefined",
+      "not executed",
+      "no result"
+    ]
+  },
+  "variant_extraction": {
+    "page": 3,
+    "entries": [
+      {
+        "variant": "V35",
+        "swfl": "SWFL-0000DE16"
+      },
+      {
+        "variant": "V36",
+        "swfl": "SWFL-0000DE16"
+      },
+      {
+        "variant": "V37",
+        "swfl": "SWFL-0000DE17"
+      },
+      {
+        "variant": "V38",
+        "swfl": "SWFL-0000DE17"
+      },
+      {
+        "variant": "V62",
+        "swfl": "SWFL-0000DE17"
+      },
+      {
+        "variant": "V63",
+        "swfl": "SWFL-0000DE17"
+      },
+      {
+        "variant": "V21",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V22",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V23",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V24",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V25",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V26",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V27",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "V28",
+        "swfl": "SWFL-0000DE18"
+      },
+      {
+        "variant": "ZA5",
+        "swfl": "SWFL-0000DE1C"
+      }
+    ]
+  }
+}

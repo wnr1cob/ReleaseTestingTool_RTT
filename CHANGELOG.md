@@ -14,6 +14,80 @@ Format per entry:
 
 ---
 
+## v2.1.2 — 2026-03-24
+### Changed
+- **STL Presets — PDF Extraction Pages card**: consolidated all page-number
+  entries (Result Status / SW Version / Variant SWFL) into a single dedicated
+  card at the top of the Presets page; removed inline "Extract from page:"
+  spinners from the SW Name, Result, and Variant individual cards.
+- Added `_save_page_numbers()` method — saves only page numbers without
+  touching patterns or entries.
+- Stale page-number writes removed from `_sw_save_entry` and `_res_save_entry`
+  (now managed exclusively through Card 0 / `_save_all()`).
+
+---
+
+## v2.1.1 — 2026-03-24
+### Changed
+- **SystemTestListe Analyzer — UI improvements**:
+  - "Open Result" button is hidden at run start and revealed only after a
+    successful analysis (Excel file ready).
+  - Selecting a tab row collapses the filter + list area and shows a name chip
+    with a Reset button; Reset restores the filter row and list.
+  - `_filter_var` is cleared on Reset.
+  - Variant Information checkbox now defaults to **unchecked**.
+  - Variant checkbox is auto-hidden when the SW name's second segment is `200`
+    (pattern `NNN_200_*`) and restored on Reset.
+- **Menu order** updated to: Dashboard, Report Analyzer, SystemTestListe
+  Analyzer, Folder Mgmt, Reports, Presets, Settings (page index 5 = Presets).
+
+---
+
+## v2.1.0 — 2026-03-24
+### Added
+- **STL Presets system**:
+  - `config/presets.json` — persistent config with three sections:
+    `sw_extraction` (page + regex patterns), `result_extraction` (page +
+    keywords), `variant_extraction` (page + SWFL entries).
+  - `src/core/systemtestliste/presets.py` — backend: `load_presets()`,
+    `save_presets()`, `variant_map_from_presets()`, `sw_patterns_from_presets()`,
+    `result_keywords_from_presets()`, `import_variant_txt()`.
+  - `src/gui/pages/stl_presets.py` — new `STLPresetsPage` UI with four cards:
+    **PDF Extraction Pages**, **SW Name Extraction Patterns**,
+    **Result Status Extraction**, and **Variant ↔ SWFL Mapping**.
+    Each card supports add / edit / delete with live list view.
+- **Presets** menu item (🔧) added to sidebar; wired to `STLPresetsPage` in
+  `main_window.py`.
+- `_run_worker()` in `systemtestliste_analyzer.py` now loads live presets at
+  runtime: derives `variant_map`, `sw_patterns`, `keywords`,
+  `result_page_idx`, `sw_page_idx`, `variant_page_idx` from `presets.json`
+  before each analysis run.
+
+---
+
+## v2.0.0 — 2026-03-24
+### Changed — **Breaking: core extraction API**
+- `pdf_matcher.match_pdf_result()` now returns a `dict` (`result`,
+  `page3_sw`, `page3_variant`) instead of a plain `str`.
+- `pdf_matcher.match_all_rows()` now returns `list[dict]` with the same keys.
+- Both functions accept new keyword parameters: `keywords`, `result_page_idx`,
+  `sw_page_idx`, `variant_page_idx` — all fully configurable.
+- `_extract_page3_full()` reads result, SW name, and variant from independently
+  configurable page indices.
+### Added
+- `utils.SW_NAME_RE` — compiled regex for NNN_NNN_…_NN_NN_ANN SW name format.
+- `utils.load_variant_map(path)` — loads `Variant_Info.txt`; returns
+  `{SWFL_hex_upper: variant_label}`.
+- `utils.extract_sw_name(text, patterns)` — tries preset regex patterns list,
+  falls back to `SW_NAME_RE`.
+- `utils.extract_variant_from_swfl(text, variant_map)` — extracts SWFL code and
+  maps it to a variant label.
+- `report_writer.py` gains six new output columns (added when the corresponding
+  check is enabled): `PDFResult`, `ResultMatch`, `Page3_SW`, `SWMatch`,
+  `Page3_Variant`, `VariantMatch`.
+
+---
+
 ## v1.3.4 — 2026-03-23
 ### Changed
 - Versioning policy updated: **logic changes and major code restructuring now

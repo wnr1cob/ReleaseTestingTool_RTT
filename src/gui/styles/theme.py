@@ -135,10 +135,11 @@ class AppTheme:
 
     # ── Sidebar Menu Items (label, icon_char) ────────────────────
     MENU_ITEMS = [
-        ("Dashboard",    "📊"),
-        ("Report Analyzer", "📄"),
-        ("SystemTestListe Analyzer",  "📗"),
-        ("Folder Mgmt",  "📁"),
-        ("Reports",      "📈"),
-        ("Settings",     "⚙️"),
+        ("Dashboard",                  "📊"),
+        ("Report Analyzer",             "📄"),
+        ("SystemTestListe Analyzer",    "📗"),
+        ("Folder Mgmt",                 "📁"),
+        ("Reports",                     "📈"),
+        ("Presets",                     "🔧"),
+        ("Settings",                    "⚙️"),
     ]

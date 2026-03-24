@@ -603,6 +603,6 @@ Is it a visual / UX improvement to an existing
   feature (new animation, colour, layout tweak)?  → Minor  (x.Y.0)
 ```
 
-### Current version: v1.3.4
+### Current version: v2.1.2
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
