@@ -14,6 +14,29 @@ Format per entry:
 
 ---
 
+## v2.2.0 — 2026-03-24
+### Added
+- **`presets.py` — SW pattern management utilities**:
+  - `try_add_sw_pattern(presets, label, regex, update_idx)` — validates and
+    adds or replaces a SW name regex pattern; enforces duplicate-regex and
+    duplicate-label checks with human-readable error messages.
+  - `detect_unmatched_sw(text, presets)` — scans arbitrary text for SW name
+    candidates (via `SW_NAME_RE`) and returns which are already covered by
+    existing patterns (`matched`) and which are not (`unmatched`), each with
+    an auto-generated suggested regex.
+  - `_generalize_sw_name(sw_value)` — private helper that converts a concrete
+    SW name string into a generalised regex (digit segments → `\d{N}`,
+    alpha-digit suffixes → `[A-Za-z]\d{N}`, other segments escaped verbatim).
+### Changed
+- **STL Presets — `_sw_save_entry()`** refactored to delegate all validation
+  and persistence to `try_add_sw_pattern()`; inline `re.compile` / duplicate
+  logic removed; error surfaced via `messagebox.showerror("Cannot Save
+  Pattern", reason)` for consistent UX.
+- Selection pointer after a new SW pattern addition now correctly points to the
+  last appended entry (`_sw_sel = len(patterns) - 1`).
+
+---
+
 ## v2.1.2 — 2026-03-24
 ### Changed
 - **STL Presets — PDF Extraction Pages card**: consolidated all page-number
