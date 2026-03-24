@@ -19,6 +19,7 @@ from src.core.systemtestliste.presets import (
     load_presets,
     save_presets,
     import_variant_txt,
+    try_add_sw_pattern,
 )
 
 
@@ -338,23 +339,18 @@ class STLPresetsPage(ctk.CTkFrame):
     def _sw_save_entry(self):
         label = self._sw_lbl_entry.get().strip()
         regex = self._sw_re_entry.get().strip()
-        if not regex:
-            messagebox.showwarning("Empty Regex", "Please enter a regex pattern.")
-            return
-        try:
-            re.compile(regex)
-        except re.error as exc:
-            messagebox.showerror("Invalid Regex", f"Regex compile error:\n{exc}")
+
+        ok, reason = try_add_sw_pattern(
+            self._presets, label, regex,
+            update_idx=self._sw_sel,
+        )
+        if not ok:
+            messagebox.showerror("Cannot Save Pattern", reason)
             return
 
-        patterns = self._presets["sw_extraction"].setdefault("patterns", [])
-        entry = {"label": label or regex, "regex": regex}
-        if self._sw_sel is not None and self._sw_sel < len(patterns):
-            patterns[self._sw_sel] = entry
-        else:
-            patterns.append(entry)
-            self._sw_sel = len(patterns) - 1
-
+        # After a new addition, point selection at the appended entry
+        if self._sw_sel is None:
+            self._sw_sel = len(self._presets["sw_extraction"].get("patterns", [])) - 1
         self._sw_populate_list()
 
     def _sw_delete(self):
@@ -384,7 +380,6 @@ class STLPresetsPage(ctk.CTkFrame):
                 self._sw_test_result.configure(text="✗  No match", text_color=T.ACCENT_DANGER)
         except re.error as exc:
             self._sw_test_result.configure(text=f"Error: {exc}", text_color=T.ACCENT_WARNING)
-
     # ══════════════════════════════════════════════════════════════
     # Card 2 – Result
     # ════════════════════════════════════════════════════════════

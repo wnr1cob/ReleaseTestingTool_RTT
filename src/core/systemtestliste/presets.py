@@ -27,6 +27,7 @@ result_keywords_from_presets(presets) → list[str]    # keyword strings (lowerc
 import copy
 import json
 import os
+import re
 
 # ── default location ────────────────────────────────────────────
 _CONFIG_DIR = os.path.normpath(
@@ -161,3 +162,164 @@ def import_variant_txt(txt_path: str) -> list[dict[str, str]]:
     except FileNotFoundError:
         pass
     return entries
+
+
+# ═══════════════════════════════════════════════════════════════
+# SW PATTERN MANAGEMENT
+# ═══════════════════════════════════════════════════════════════
+
+def try_add_sw_pattern(
+    presets: dict,
+    label: str,
+    regex: str,
+    update_idx: int | None = None,
+) -> tuple[bool, str]:
+    """Validate and add (or update) a SW name pattern in *presets*.
+
+    Parameters
+    ----------
+    presets : dict
+        Live presets dict (mutated in place on success).
+    label : str
+        Human-readable name for the pattern.
+    regex : str
+        Regular expression string to store.
+    update_idx : int | None
+        When set the pattern at this index is replaced (edit mode).
+        Duplicate checks skip the entry being replaced.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(True, "")`` on success.
+        ``(False, reason)`` when the pattern could not be stored, where
+        *reason* is a human-readable explanation suitable for a dialog.
+    """
+    regex = regex.strip()
+    label = label.strip()
+
+    # ── basic validation ────────────────────────────────────────
+    if not regex:
+        return False, "Regex field is empty. Enter a valid regex pattern."
+
+    try:
+        re.compile(regex)
+    except re.error as exc:
+        return False, f"Invalid regex syntax — the pattern cannot be compiled:\n{exc}"
+
+    patterns: list[dict] = presets["sw_extraction"].setdefault("patterns", [])
+
+    # ── duplicate regex check ───────────────────────────────────
+    for i, p in enumerate(patterns):
+        if update_idx is not None and i == update_idx:
+            continue
+        if p.get("regex", "").strip() == regex:
+            existing_label = p.get("label") or p.get("regex", "")
+            return False, (
+                f"Duplicate regex — the same pattern is already stored as\n"
+                f"\u201c{existing_label}\u201d.\n\n"
+                f"Edit the existing entry instead of creating a duplicate."
+            )
+
+    # ── duplicate label check (non-empty labels only) ───────────
+    if label:
+        for i, p in enumerate(patterns):
+            if update_idx is not None and i == update_idx:
+                continue
+            if p.get("label", "").strip().lower() == label.lower():
+                return False, (
+                    f"A pattern named \u201c{label}\u201d already exists.\n"
+                    f"Choose a different label, or leave it blank to use the "
+                    f"regex as the label."
+                )
+
+    # ── persist ────────────────────────────────────────────────
+    entry = {"label": label or regex, "regex": regex}
+    if update_idx is not None and 0 <= update_idx < len(patterns):
+        patterns[update_idx] = entry
+    else:
+        patterns.append(entry)
+
+    return True, ""
+
+
+def detect_unmatched_sw(text: str, presets: dict) -> dict[str, list]:
+    """Scan *text* for SW name strings not covered by any existing pattern.
+
+    Uses the broad built-in ``SW_NAME_RE`` to discover all candidate SW
+    names in *text*, then checks each against every stored pattern.  Any
+    candidate not matched by at least one stored pattern is returned as an
+    \u201cunmatched\u201d suggestion together with an auto-generated regex.
+
+    Returns
+    -------
+    dict with two keys:
+
+    ``matched``
+        ``list[tuple[str, str]]`` — (sw_value, pattern_label) pairs for
+        names that are already covered.
+    ``unmatched``
+        ``list[dict]`` — each dict has keys ``value``, ``suggested_regex``,
+        and ``suggested_label`` for names not covered by any pattern.
+    """
+    from src.core.systemtestliste.utils import SW_NAME_RE  # local import avoids circular dep
+
+    existing: list[dict] = presets.get("sw_extraction", {}).get("patterns", [])
+    candidates: set[str] = {m.group(0) for m in SW_NAME_RE.finditer(text)}
+
+    matched: list[tuple[str, str]] = []
+    unmatched: list[dict] = []
+
+    for value in sorted(candidates):
+        found_by: str | None = None
+        for pat_entry in existing:
+            pat_str = pat_entry.get("regex", "")
+            if not pat_str:
+                continue
+            try:
+                if re.search(pat_str, value):
+                    found_by = pat_entry.get("label") or pat_str
+                    break
+            except re.error:
+                pass
+        if found_by:
+            matched.append((value, found_by))
+        else:
+            sug_regex, sug_label = _generalize_sw_name(value)
+            unmatched.append(
+                {
+                    "value": value,
+                    "suggested_regex": sug_regex,
+                    "suggested_label": sug_label,
+                }
+            )
+
+    return {"matched": matched, "unmatched": unmatched}
+
+
+def _generalize_sw_name(sw_value: str) -> tuple[str, str]:
+    """Build a generalised regex from a concrete SW name string.
+
+    Digit-only segments are replaced by ``\\d{N}`` wildcards; mixed
+    alpha-digit suffixes such as ``A03`` become ``[A-Za-z]\\d{2}``; all
+    other segments are escaped verbatim.
+
+    Example::
+
+        "123_456_MySW_01_02_A03"
+        \u2192 (r"\\d{3}_\\d{3}_MySW_\\d{2}_\\d{2}_[A-Za-z]\\d{2}",
+               "Pattern for MySW")
+    """
+    parts = sw_value.split("_")
+    rx_parts: list[str] = []
+    for part in parts:
+        if part.isdigit():
+            rx_parts.append(r"\d{" + str(len(part)) + r"}")
+        elif len(part) >= 2 and part[0].isalpha() and part[1:].isdigit():
+            # e.g. A03  →  [A-Za-z]\d{2}
+            rx_parts.append(r"[A-Za-z]\d{" + str(len(part) - 1) + r"}")
+        else:
+            rx_parts.append(re.escape(part))
+    # Use the 3rd segment (product / model name) as the label hint
+    label_part = parts[2] if len(parts) > 2 else sw_value[:20]
+    return "_".join(rx_parts), f"Pattern for {label_part}"
