@@ -57,6 +57,11 @@ DEFAULT_PRESETS: dict = {
         "page": 3,
         "entries": [],
     },
+    "library_extraction": {
+        "page": 3,
+        "search_text": "Used version of custom library",
+        "version_pattern": r"[vV]\d+\.\d+",
+    },
 }
 
 
@@ -83,6 +88,8 @@ def load_presets(path: str | None = None) -> dict:
             result["result_extraction"].update(data["result_extraction"])
         if "variant_extraction" in data:
             result["variant_extraction"].update(data["variant_extraction"])
+        if "library_extraction" in data:
+            result["library_extraction"].update(data["library_extraction"])
         return result
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return copy.deepcopy(DEFAULT_PRESETS)
@@ -136,6 +143,20 @@ def result_keywords_from_presets(presets: dict) -> list[str]:
     if kws:
         return kws
     return ["passed", "failed", "error", "undefined", "not executed", "no result"]
+
+
+def library_settings_from_presets(presets: dict) -> dict:
+    """Return the library extraction settings dict from *presets*.
+
+    Returns a dict with keys ``page`` (int, 1-based), ``search_text`` (str),
+    and ``version_pattern`` (str regex).
+    """
+    lib = presets.get("library_extraction", {})
+    return {
+        "page": int(lib.get("page", 3)),
+        "search_text": lib.get("search_text", "Used version of custom library"),
+        "version_pattern": lib.get("version_pattern", r"[vV]\d+\.\d+"),
+    }
 
 
 def import_variant_txt(txt_path: str) -> list[dict[str, str]]:

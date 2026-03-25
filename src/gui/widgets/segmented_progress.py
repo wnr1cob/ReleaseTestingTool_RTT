@@ -28,6 +28,8 @@ class SegmentedProgressBar(ctk.CTkFrame):
         self._step_labels: list[ctk.CTkLabel] = []
         self._pct_labels: list[ctk.CTkLabel] = []
         self._values: list[float] = [0.0] * len(segments)
+        # Original label texts stored for reset()
+        self._original_labels: list[str] = [seg["label"] for seg in segments]
 
         # ── overall header ──────────────────────────────────────
         overall_row = ctk.CTkFrame(self, fg_color="transparent")
@@ -112,16 +114,21 @@ class SegmentedProgressBar(ctk.CTkFrame):
 
         self._update_overall()
 
+    def set_segment_label(self, index: int, text: str):
+        """Update the step label for segment *index* (e.g. to append elapsed time)."""
+        self._step_labels[index].configure(text=text)
+
     def get_segment(self, index: int) -> float:
         return self._values[index]
 
     def reset(self):
-        """Reset all segments to 0."""
+        """Reset all segments to 0 and restore original labels."""
         for i, seg in enumerate(self._segment_defs):
             self._values[i] = 0.0
             self._bars[i].set(0)
             self._bars[i].configure(progress_color=seg["color"])
             self._pct_labels[i].configure(text="0 %", text_color=seg["color"])
+            self._step_labels[i].configure(text=self._original_labels[i])
         self._overall_pct.configure(text="0 %", text_color=T.ACCENT_PRIMARY)
 
     def set_overall_label(self, text: str):

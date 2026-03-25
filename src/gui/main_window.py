@@ -14,6 +14,8 @@ Layout
 └──────────┴──────────────────────────────────────────────┘
 """
 import customtkinter as ctk
+import sys
+from pathlib import Path
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.sidebar import Sidebar
 from src.gui.widgets.status_bar import StatusBar
@@ -49,14 +51,19 @@ class MainWindow:
         self.root.withdraw()
 
         # Try to set window icon (ignore if file missing)
+        _ICON_PATH = str(Path(__file__).parent / "icon" / "icon.ico")
         try:
-            self.root.iconbitmap("resources/icons/app_icon.ico")
+            self.root.iconbitmap(_ICON_PATH)
         except Exception:
             pass
 
         self._pages: dict[int, ctk.CTkFrame] = {}
         self._current_page: ctk.CTkFrame | None = None
         self._splash: SplashScreen | None = None
+
+        # Register close handler — ensures clean exit whether the user clicks
+        # the ✕ button or the window is force-closed.
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # Give Tk a single tick to settle before showing the splash
         self.root.after(50, self._start_build)
@@ -167,6 +174,12 @@ class MainWindow:
         self._show_page(0)
         self.root.deiconify()
         self.root.state("zoomed")
+        # Re-apply icon after deiconify — Windows may drop it on withdrawn windows
+        _ICON_PATH = str(Path(__file__).parent / "icon" / "icon.ico")
+        try:
+            self.root.iconbitmap(_ICON_PATH)
+        except Exception:
+            pass
 
     # ── shell construction (sidebar / header / content) ─────────
     def _build_shell(self):
@@ -182,6 +195,32 @@ class MainWindow:
         header = ctk.CTkFrame(right, height=48, corner_radius=0, fg_color=T.BG_HEADER)
         header.pack(fill="x")
         header.pack_propagate(False)
+
+        # App icon in header — load best-resolution frame from the .ico
+        try:
+            from PIL import Image
+            _ico_path = Path(__file__).parent / "icon" / "icon.ico"
+            _ico_raw  = Image.open(_ico_path)
+            # .ico files can contain multiple sizes; pick the largest square frame
+            try:
+                sizes = [s for s in _ico_raw.info.get("sizes", [])]
+                if sizes:
+                    best = max(sizes, key=lambda s: s[0])
+                    _ico_raw.size = best   # hint for PIL to pick that frame
+            except Exception:
+                pass
+            _ico_img = _ico_raw.convert("RGBA").resize((28, 28), Image.LANCZOS)
+            self._header_icon_img = ctk.CTkImage(
+                light_image=_ico_img, dark_image=_ico_img, size=(28, 28)
+            )
+            ctk.CTkLabel(
+                header,
+                image=self._header_icon_img,
+                text="",
+                fg_color="transparent",
+            ).pack(side="left", padx=(14, 0))
+        except Exception:
+            pass
 
         self._header_title = ctk.CTkLabel(
             header,
@@ -218,10 +257,36 @@ class MainWindow:
             self._header_title.configure(text=labels[index])
             self._status_bar.set_status(f"Viewing: {labels[index]}")
 
+    # ── clean shutdown ──────────────────────────────────────────
+    def _on_close(self):
+        """Called when the window X button is clicked or the OS closes the app.
+
+        Cancels any pending `after()` callbacks on the root, destroys the
+        window, then calls sys.exit(0) to guarantee the process terminates
+        even if daemon threads or tkinter internals are still running.
+        """
+        import logging
+        logging.info("Window close requested — shutting down.")
+
+        # Close the splash if it is somehow still open
+        try:
+            if self._splash:
+                self._splash.close()
+                self._splash = None
+        except Exception:
+            pass
+
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
+        sys.exit(0)
+
     # ── run ─────────────────────────────────────────────────────
     def run(self):
         """Launch the main event loop."""
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
-            pass
+            self._on_close()

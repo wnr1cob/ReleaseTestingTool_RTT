@@ -1,6 +1,6 @@
 # Release Testing Tool
 
-**Current version: v2.2.0** — see [CHANGELOG.md](CHANGELOG.md) for full history.
+**Current version: v2.5.0** — see [CHANGELOG.md](CHANGELOG.md) for full history.
 
 A Python-based tool for analyzing PDFs, reading/writing Excel sheets, and managing folder structures as part of release testing workflows.
 

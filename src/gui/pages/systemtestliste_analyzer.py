@@ -2,6 +2,7 @@
 SystemTestListe Analyzer page – cross-reference PDF results against an Excel SystemTestListe.
 """
 import os
+import time
 import threading
 from tkinter import filedialog
 import customtkinter as ctk
@@ -326,7 +327,7 @@ class SystemTestListePage(ctk.CTkFrame):
         )
         self._dir_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
-        RttButton(
+        self._folder_browse_btn = RttButton(
             row,
             text="Browse",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
@@ -337,7 +338,8 @@ class SystemTestListePage(ctk.CTkFrame):
             hover_color=T.SIDEBAR_BTN_HOVER,
             text_color="#000000",
             command=self._browse_directory,
-        ).pack(side="right")
+        )
+        # not packed yet – shown only after a SW tab is selected
 
     # ── Card 5 ─────────────────────────────────────────────────
     def _build_options_card(self):
@@ -362,7 +364,8 @@ class SystemTestListePage(ctk.CTkFrame):
 
         self._chk_result_var  = ctk.BooleanVar(value=True)
         self._chk_sw_var      = ctk.BooleanVar(value=True)
-        self._chk_variant_var = ctk.BooleanVar(value=False)
+        self._chk_variant_var = ctk.BooleanVar(value=True)
+        self._chk_library_var = ctk.BooleanVar(value=True)
 
         _chk_opts = dict(
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
@@ -384,6 +387,12 @@ class SystemTestListePage(ctk.CTkFrame):
             variable=self._chk_variant_var, **_chk_opts
         )
         self._variant_chk.pack(side="left", padx=(0, 30))
+
+        self._library_chk = ctk.CTkCheckBox(
+            checks_row, text="Library Check",
+            variable=self._chk_library_var, **_chk_opts
+        )
+        self._library_chk.pack(side="left", padx=(0, 30))
 
     # ── Bottom bar ──────────────────────────────────────────────
     def _build_bottom_bar(self):
@@ -590,8 +599,13 @@ class SystemTestListePage(ctk.CTkFrame):
         if is_200:
             self._chk_variant_var.set(False)
             self._variant_chk.pack_forget()
+            self._library_chk.pack_forget()
         else:
             self._variant_chk.pack(side="left", padx=(0, 30))
+            self._library_chk.pack(side="left", padx=(0, 30))
+
+        # Show folder browse now that a SW is selected
+        self._folder_browse_btn.pack(side="right")
 
         # Collapse filter + list; show compact name chip
         self._selected_name_label.configure(text=tab)
@@ -614,8 +628,11 @@ class SystemTestListePage(ctk.CTkFrame):
                 text_color=T.TEXT_PRIMARY,
                 border_width=0,
             )
-        # Restore variant checkbox visibility
+        # Hide folder browse until a SW tab is re-selected
+        self._folder_browse_btn.pack_forget()
+        # Restore variant + library checkbox visibility
         self._variant_chk.pack(side="left", padx=(0, 30))
+        self._library_chk.pack(side="left", padx=(0, 30))
         # Show filter + list; hide name chip
         self._filter_var.set("")
         self._selected_row.pack_forget()
@@ -653,6 +670,10 @@ class SystemTestListePage(ctk.CTkFrame):
 
     def _set_seg(self, idx: int, value: float):
         self._ui(lambda: self._progress.set_segment(idx, value))
+
+    def _set_seg_label(self, idx: int, text: str):
+        """Thread-safe update of a segment label (e.g. to show elapsed time)."""
+        self._ui(lambda: self._progress.set_segment_label(idx, text))
 
     # ── Open result file ────────────────────────────────────────
     def _open_result_file(self):
@@ -694,10 +715,12 @@ class SystemTestListePage(ctk.CTkFrame):
         chk_result  = self._chk_result_var.get()
         chk_sw      = self._chk_sw_var.get()
         chk_variant = self._chk_variant_var.get()
+        chk_library = self._chk_library_var.get()
 
         # ── Step 1: Read selected sheet ─────────────────────────
         self._set_status(f"  Reading sheet '{self._selected_tab}' from Excel…")
         self._set_seg(0, 0.2)
+        _t0 = time.perf_counter()
 
         try:
             all_rows = read_sheet_data(self._excel_file, self._selected_tab)
@@ -717,10 +740,13 @@ class SystemTestListePage(ctk.CTkFrame):
             return
 
         self._set_seg(0, 1.0)
+        _elapsed = time.perf_counter() - _t0
+        self._set_seg_label(0, f"Reading Excel ({_elapsed:.1f}s)")
 
         # ── Step 2: Filter rows where Description contains HILTS
         self._set_status("  Filtering HILTS rows…")
         self._set_seg(1, 0.3)
+        _t1 = time.perf_counter()
 
         data_rows = filter_hilts_rows(all_rows, best_idx, col_map)
 
@@ -736,13 +762,18 @@ class SystemTestListePage(ctk.CTkFrame):
 
         # Load live presets so any changes saved on the Presets page are
         # picked up immediately without restarting the application.
+        from src.core.systemtestliste.presets import library_settings_from_presets
         presets          = load_presets()
         variant_map      = variant_map_from_presets(presets) if chk_variant else {}
         sw_patterns      = sw_patterns_from_presets(presets) if chk_sw      else None
         keywords         = result_keywords_from_presets(presets)
-        result_page_idx  = presets["result_extraction"]["page"] - 1  # 1-based → 0-based
+        result_page_idx  = presets["result_extraction"]["page"] - 1
         sw_page_idx      = presets["sw_extraction"]["page"] - 1
         variant_page_idx = presets["variant_extraction"]["page"] - 1
+        lib_settings     = library_settings_from_presets(presets)
+        library_page_idx          = lib_settings["page"] - 1
+        library_search_text       = lib_settings["search_text"]    if chk_library else ""
+        library_version_pattern   = lib_settings["version_pattern"] if chk_library else r"[vV]\d+\.\d+"
         total            = len(data_rows)
 
         def _pdf_progress(processed: int, total_: int, pdf_result: str) -> None:
@@ -763,13 +794,20 @@ class SystemTestListePage(ctk.CTkFrame):
             result_page_idx=result_page_idx,
             sw_page_idx=sw_page_idx,
             variant_page_idx=variant_page_idx,
+            library_page_idx=library_page_idx,
+            library_search_text=library_search_text,
+            library_version_pattern=library_version_pattern,
             on_progress=_pdf_progress,
         )
 
+        _pdf_elapsed = time.perf_counter() - _t1
+        self._set_seg_label(1, f"Scanning PDFs ({_pdf_elapsed:.1f}s)")
+
         # Unpack parallel lists from the result dicts
-        pdf_results        = [d["result"]         for d in match_dicts]
-        page3_sw_list      = [d["page3_sw"]       for d in match_dicts]
-        page3_variant_list = [d["page3_variant"]  for d in match_dicts]
+        pdf_results        = [d["result"]          for d in match_dicts]
+        page3_sw_list      = [d["page3_sw"]        for d in match_dicts]
+        page3_variant_list = [d["page3_variant"]   for d in match_dicts]
+        library_ver_raw    = [d.get("library_version", "") for d in match_dicts]
 
         # ── Step 5: Compute match flags ─────────────────────────
         stl_result_idx = 2  # OUTPUT_COLS index for "Result"
@@ -799,17 +837,23 @@ class SystemTestListePage(ctk.CTkFrame):
                 for p3 in page3_variant_list
             ]
 
+        out_library_ver: list[str] | None = library_ver_raw if chk_library else None
+
         # ── Step 6: Write output Excel ───────────────────────────
         output_dir = os.path.dirname(self._excel_file)
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        _t2 = time.perf_counter()
         try:
             output_path = write_stl_helper(
                 output_dir, data_rows, pdf_results, OUTPUT_COLS, timestamp,
+                sw_name=sw_name,
+                variant=variant,
                 match_flags=match_flags,
                 page3_sw_list=out_page3_sw,
                 sw_match_flags=sw_match_flags,
                 page3_variant_list=out_page3_variant,
                 variant_match_flags=variant_match_flags,
+                library_version_list=out_library_ver,
             )
         except Exception as e:
             self._set_status(f"  Failed to save output: {e}", T.ACCENT_DANGER)
@@ -818,6 +862,8 @@ class SystemTestListePage(ctk.CTkFrame):
 
         self._result_path = output_path
         self._set_seg(2, 1.0)
+        _report_elapsed = time.perf_counter() - _t2
+        self._set_seg_label(2, f"Report ({_report_elapsed:.1f}s)")
 
         # ── Summary message ───────────────────────────────────────
         parts: list[str] = []
@@ -827,6 +873,9 @@ class SystemTestListePage(ctk.CTkFrame):
             parts.append(f"SW: {sum(sw_match_flags)}/{len(data_rows)}")
         if variant_match_flags is not None:
             parts.append(f"Variant: {sum(variant_match_flags)}/{len(data_rows)}")
+        if out_library_ver is not None:
+            linked = sum(1 for v in out_library_ver if v)
+            parts.append(f"Library: {linked}/{len(data_rows)} linked")
         match_info = ("  |  Match – " + "  ".join(parts)) if parts else ""
 
         final = (

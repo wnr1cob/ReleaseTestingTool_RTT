@@ -13,10 +13,17 @@ match_pdf_result(description, pdf_index, sw_name, variant, variant_map, min_scor
 match_all_rows(data_rows, pdf_index, sw_name, variant, variant_map, on_progress)
     Match every row and return a list of result dicts.
 """
+import gc
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
-from .utils import extract_sw_name, extract_variant_from_swfl
+from .utils import extract_sw_name, extract_variant_from_swfl, extract_library_version
+
+# Number of parallel PDF workers.  Capped at 8 to avoid overwhelming the OS
+# file-handle limit; pdfplumber I/O releases the GIL so threads help here.
+_MAX_WORKERS: int = min(8, (os.cpu_count() or 4))
 
 
 # Result keywords in priority order – first match wins
@@ -26,7 +33,7 @@ KEYWORDS = ["passed", "failed", "error", "undefined", "not executed", "no result
 MIN_SCORE: float = 0.95
 
 # Empty page-3 extras (used as a default sentinel)
-_NO_PAGE3 = {"page3_sw": "", "page3_variant": ""}
+_NO_PAGE3 = {"page3_sw": "", "page3_variant": "", "library_version": ""}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -50,21 +57,38 @@ def build_pdf_index(pdf_dir: str) -> list[tuple[str, str]]:
     return index
 
 
-def _read_pdf_page(pdf_path: str, pref_idx: int) -> str:
-    """Return text from *pref_idx* page of *pdf_path* (with fallback).
+def _read_pdf_pages(pdf_path: str, page_indices: list[int]) -> dict[int, str]:
+    """Open *pdf_path* once and return text for every requested page index.
 
-    Falls back to page 2 (index 1) then page 1 (index 0) when the
-    preferred page does not exist.
+    De-duplicates indices so each page is extracted only once.  Falls back
+    gracefully when a page does not exist.
+
+    Returns
+    -------
+    dict[int, str]
+        Mapping of requested index → extracted text (empty string on failure).
     """
     import pdfplumber
-    with pdfplumber.open(pdf_path) as pdf:
-        if len(pdf.pages) > pref_idx:
-            return pdf.pages[pref_idx].extract_text() or ""
-        if len(pdf.pages) >= 2:
-            return pdf.pages[1].extract_text() or ""
-        if len(pdf.pages) >= 1:
-            return pdf.pages[0].extract_text() or ""
-    return ""
+    unique = sorted(set(page_indices))
+    texts: dict[int, str] = {idx: "" for idx in page_indices}
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            n = len(pdf.pages)
+            for idx in unique:
+                if idx < n:
+                    texts[idx] = pdf.pages[idx].extract_text() or ""
+                elif n >= 2:
+                    texts[idx] = pdf.pages[1].extract_text() or ""
+                elif n >= 1:
+                    texts[idx] = pdf.pages[0].extract_text() or ""
+    except Exception:
+        pass
+    return texts
+
+
+def _read_pdf_page(pdf_path: str, pref_idx: int) -> str:
+    """Convenience wrapper – read a single page (opens the PDF once)."""
+    return _read_pdf_pages(pdf_path, [pref_idx])[pref_idx]
 
 
 def _extract_page3_full(
@@ -73,8 +97,11 @@ def _extract_page3_full(
     sw_page_idx: int = 2,
     result_page_idx: int = 2,
     variant_page_idx: int = 2,
+    library_page_idx: int = 2,
     sw_patterns: list[str] | None = None,
     keywords: list[str] | None = None,
+    library_search_text: str = "",
+    library_version_pattern: str = r"[vV]\d+\.\d+",
 ) -> dict[str, str]:
     """Extract result, SW name, and variant from the configured PDF pages.
 
@@ -92,7 +119,11 @@ def _extract_page3_full(
     """
     _kws = keywords or KEYWORDS
     try:
-        txt_result = _read_pdf_page(pdf_path, result_page_idx)
+        # Open the PDF once and read all required pages in a single pass
+        needed = list({result_page_idx, sw_page_idx, variant_page_idx, library_page_idx})
+        pages  = _read_pdf_pages(pdf_path, needed)
+
+        txt_result = pages[result_page_idx]
         t = txt_result.lower()
         found = next((kw for kw in _kws if kw in t), None)
         result = found.title() if found else (
@@ -100,15 +131,23 @@ def _extract_page3_full(
             + next((ln.strip() for ln in txt_result.splitlines() if ln.strip()), "No data")[:120]
         )
 
-        txt_sw = _read_pdf_page(pdf_path, sw_page_idx)
-        page3_sw = extract_sw_name(txt_sw, sw_patterns)
+        page3_sw      = extract_sw_name(pages[sw_page_idx], sw_patterns)
+        page3_variant = extract_variant_from_swfl(pages[variant_page_idx], variant_map)
 
-        txt_var = _read_pdf_page(pdf_path, variant_page_idx)
-        page3_variant = extract_variant_from_swfl(txt_var, variant_map)
+        library_version = ""
+        if library_search_text:
+            library_version = extract_library_version(
+                pages[library_page_idx], library_search_text, library_version_pattern
+            ) or ""
 
-        return {"result": result, "page3_sw": page3_sw, "page3_variant": page3_variant}
+        return {
+            "result": result,
+            "page3_sw": page3_sw,
+            "page3_variant": page3_variant,
+            "library_version": library_version,
+        }
     except Exception:
-        return {"result": "No Result", "page3_sw": "", "page3_variant": ""}
+        return {"result": "No Result", "page3_sw": "", "page3_variant": "", "library_version": ""}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -126,6 +165,9 @@ def match_pdf_result(
     result_page_idx: int = 2,
     sw_page_idx: int = 2,
     variant_page_idx: int = 2,
+    library_page_idx: int = 2,
+    library_search_text: str = "",
+    library_version_pattern: str = r"[vV]\d+\.\d+",
     min_score: float = MIN_SCORE,
 ) -> dict[str, str]:
     """Fuzzy-match *description* against *pdf_index* and extract test data.
@@ -140,11 +182,17 @@ def match_pdf_result(
         0-based page index for SW-name extraction (default 2).
     variant_page_idx : int
         0-based page index for SWFL scanning (default 2).
+    library_page_idx : int
+        0-based page index for library version extraction (default 2).
+    library_search_text : str
+        Anchor phrase to locate the library version block.
+    library_version_pattern : str
+        Regex for the version value.
 
     Returns
     -------
     dict
-        ``{"result": str, "page3_sw": str, "page3_variant": str}``
+        ``{"result": str, "page3_sw": str, "page3_variant": str, "library_version": str}``
     """
     from difflib import SequenceMatcher
 
@@ -169,31 +217,51 @@ def match_pdf_result(
             sw_page_idx=sw_page_idx,
             result_page_idx=result_page_idx,
             variant_page_idx=variant_page_idx,
+            library_page_idx=library_page_idx,
             sw_patterns=sw_patterns,
             keywords=_kws,
+            library_search_text=library_search_text,
+            library_version_pattern=library_version_pattern,
         )
 
     if sw_name:
         try:
-            txt_result = _read_pdf_page(matched, result_page_idx)
-            found = next((kw for kw in _kws if kw in txt_result.lower()), None)
+            needed = list({result_page_idx, sw_page_idx, variant_page_idx,
+                           *([library_page_idx] if library_search_text else [])})
+            pages  = _read_pdf_pages(matched, needed)
+            found  = next((kw for kw in _kws if kw in pages[result_page_idx].lower()), None)
             result = found.title() if found else "No Result"
-            txt_sw = _read_pdf_page(matched, sw_page_idx)
-            page3_sw = extract_sw_name(txt_sw, sw_patterns)
+            page3_sw      = extract_sw_name(pages[sw_page_idx], sw_patterns)
+            page3_variant = extract_variant_from_swfl(pages[variant_page_idx], vm)
+            library_version = ""
+            if library_search_text:
+                library_version = extract_library_version(
+                    pages[library_page_idx], library_search_text, library_version_pattern
+                ) or ""
         except Exception:
-            result, page3_sw = "No Result", ""
-        try:
-            txt3 = _read_pdf_page(matched, variant_page_idx)
-            page3_variant = extract_variant_from_swfl(txt3, vm)
-        except Exception:
-            page3_variant = ""
-        return {"result": result, "page3_sw": page3_sw, "page3_variant": page3_variant}
+            result, page3_sw, page3_variant, library_version = "No Result", "", "", ""
+        return {
+            "result": result,
+            "page3_sw": page3_sw,
+            "page3_variant": page3_variant,
+            "library_version": library_version,
+        }
 
     # No SW/variant context – result only
     try:
-        txt = _read_pdf_page(matched, result_page_idx)
-        found = next((kw for kw in _kws if kw in txt.lower()), None)
-        return {"result": found.title() if found else "No Result", **_NO_PAGE3}
+        needed = list({result_page_idx, *([library_page_idx] if library_search_text else [])})
+        pages  = _read_pdf_pages(matched, needed)
+        found  = next((kw for kw in _kws if kw in pages[result_page_idx].lower()), None)
+        library_version = ""
+        if library_search_text:
+            library_version = extract_library_version(
+                pages[library_page_idx], library_search_text, library_version_pattern
+            ) or ""
+        return {
+            "result": found.title() if found else "No Result",
+            **{k: v for k, v in _NO_PAGE3.items() if k != "library_version"},
+            "library_version": library_version,
+        }
     except Exception:
         return {"result": "No Result", **_NO_PAGE3}
 
@@ -209,14 +277,27 @@ def match_all_rows(
     result_page_idx: int = 2,
     sw_page_idx: int = 2,
     variant_page_idx: int = 2,
+    library_page_idx: int = 2,
+    library_search_text: str = "",
+    library_version_pattern: str = r"[vV]\d+\.\d+",
     min_score: float = MIN_SCORE,
     on_progress: Callable[[int, int, str], None] | None = None,
 ) -> list[dict[str, str]]:
-    """Match every row in *data_rows* against *pdf_index*."""
-    results: list[dict[str, str]] = []
-    total = len(data_rows)
+    """Match every row in *data_rows* against *pdf_index* using parallel workers.
 
-    for idx, row in enumerate(data_rows):
+    PDFs are processed concurrently (up to :data:`_MAX_WORKERS` threads).
+    Result order always matches the input row order regardless of completion
+    order.  The *on_progress* callback is invoked in a thread-safe manner as
+    each PDF finishes.
+    """
+    total = len(data_rows)
+    # Pre-allocate to preserve input order
+    results: list[dict[str, str]] = [{}] * total
+
+    _lock = threading.Lock()
+    _completed = [0]  # mutable counter shared across worker threads
+
+    def _process(row_idx: int, row: list[str]) -> tuple[int, dict[str, str]]:
         description = row[1] if len(row) > 1 else ""
         match = match_pdf_result(
             description, pdf_index,
@@ -227,10 +308,29 @@ def match_all_rows(
             result_page_idx=result_page_idx,
             sw_page_idx=sw_page_idx,
             variant_page_idx=variant_page_idx,
+            library_page_idx=library_page_idx,
+            library_search_text=library_search_text,
+            library_version_pattern=library_version_pattern,
             min_score=min_score,
         )
-        results.append(match)
-        if on_progress:
-            on_progress(idx + 1, total, match["result"])
+        # Free pdfplumber page objects and extracted text immediately
+        gc.collect()
+        return row_idx, match
 
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_process, idx, row): idx
+            for idx, row in enumerate(data_rows)
+        }
+        for future in as_completed(futures):
+            row_idx, match = future.result()
+            results[row_idx] = match
+            if on_progress:
+                with _lock:
+                    _completed[0] += 1
+                    count = _completed[0]
+                on_progress(count, total, match["result"])
+
+    # Final collect after all workers are done
+    gc.collect()
     return results

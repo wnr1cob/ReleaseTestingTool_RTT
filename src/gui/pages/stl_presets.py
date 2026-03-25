@@ -20,6 +20,7 @@ from src.core.systemtestliste.presets import (
     save_presets,
     import_variant_txt,
     try_add_sw_pattern,
+    library_settings_from_presets,
 )
 
 
@@ -96,6 +97,7 @@ class STLPresetsPage(ctk.CTkFrame):
         self._build_sw_card(scroll)
         self._build_result_card(scroll)
         self._build_variant_card(scroll)
+        self._build_library_card(scroll)
 
     # ════════════════════════════════════════════════════════════
     # Card 0 – Page Numbers
@@ -169,7 +171,19 @@ class STLPresetsPage(ctk.CTkFrame):
         _label(grid, "  →  page where the SWFL code (SWFL-XXXXXXXX) appears",
                color=T.TEXT_SECONDARY, small=True).grid(
             row=2, column=3, sticky="w", padx=(10, 0), pady=6)
-
+        # ── Library
+        _label(grid, "Library Version", color=T.TEXT_SECONDARY).grid(
+            row=3, column=0, sticky="w", padx=(0, 12), pady=6)
+        _label(grid, "page:", color=T.TEXT_SECONDARY, small=True).grid(
+            row=3, column=1, sticky="e", padx=(0, 6), pady=6)
+        self._lib_page_var = ctk.StringVar(
+            value=str(self._presets.get("library_extraction", {}).get("page", 3))
+        )
+        ctk.CTkEntry(grid, textvariable=self._lib_page_var, **_entry_opts).grid(
+            row=3, column=2, sticky="w", pady=6)
+        _label(grid, "  \u2192  page where the library version text appears",
+               color=T.TEXT_SECONDARY, small=True).grid(
+            row=3, column=3, sticky="w", padx=(10, 0), pady=6)
         # ── Save button
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(0, 14))
@@ -772,6 +786,129 @@ class STLPresetsPage(ctk.CTkFrame):
 
     # ══════════════════════════════════════════════════════════════    # Save page-numbers only
     # ════════════════════════════════════════════════════════════
+    # Card 5 – Library Extraction
+    # ════════════════════════════════════════════════════════════
+    def _build_library_card(self, parent):
+        lib = self._presets.get("library_extraction", {})
+        card = ctk.CTkFrame(
+            parent, corner_radius=T.CARD_CORNER,
+            fg_color=T.BG_CARD, border_width=1, border_color=T.BORDER_COLOR,
+        )
+        card.pack(fill="x", padx=30, pady=(0, 15))
+
+        hdr = ctk.CTkFrame(card, fg_color="transparent")
+        hdr.pack(fill="x", padx=20, pady=(16, 0))
+        _label(hdr, "Library Version Extraction", color=T.TEXT_BRIGHT, bold=True).pack(side="left")
+
+        _divider(card)
+
+        edit = ctk.CTkFrame(card, fg_color="transparent")
+        edit.pack(fill="x", padx=20, pady=(12, 0))
+        edit.columnconfigure(1, weight=1)
+
+        _label(edit, "Anchor text:", small=True, color=T.TEXT_SECONDARY).grid(
+            row=0, column=0, sticky="w", padx=(0, 8), pady=4)
+        self._lib_search_var = ctk.StringVar(
+            value=lib.get("search_text", "Used version of custom library")
+        )
+        ctk.CTkEntry(
+            edit, textvariable=self._lib_search_var, height=34,
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
+            fg_color=T.BG_SIDEBAR, text_color=T.TEXT_PRIMARY,
+            border_color=T.BORDER_COLOR, corner_radius=T.BUTTON_CORNER,
+            placeholder_text="e.g. Used version of custom library",
+        ).grid(row=0, column=1, sticky="ew", pady=4)
+
+        _label(edit, "Version regex:", small=True, color=T.TEXT_SECONDARY).grid(
+            row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        self._lib_pattern_var = ctk.StringVar(
+            value=lib.get("version_pattern", r"[vV]\d+\.\d+")
+        )
+        ctk.CTkEntry(
+            edit, textvariable=self._lib_pattern_var, height=34,
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
+            fg_color=T.BG_SIDEBAR, text_color=T.TEXT_PRIMARY,
+            border_color=T.BORDER_COLOR, corner_radius=T.BUTTON_CORNER,
+            placeholder_text=r"e.g. [vV]\d+\.\d+",
+        ).grid(row=1, column=1, sticky="ew", pady=4)
+
+        _label(edit, "Test text:", small=True, color=T.TEXT_SECONDARY).grid(
+            row=2, column=0, sticky="w", padx=(0, 8), pady=4)
+        test_row = ctk.CTkFrame(edit, fg_color="transparent")
+        test_row.grid(row=2, column=1, sticky="ew", pady=4)
+        test_row.columnconfigure(0, weight=1)
+        self._lib_test_entry = _entry(
+            test_row, placeholder="Paste text from the library page to test...")
+        self._lib_test_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        RttButton(
+            test_row, text="Test", width=60, height=30,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.BG_SIDEBAR, hover_color=T.SIDEBAR_BTN_HOVER,
+            text_color=T.TEXT_PRIMARY,
+            command=self._lib_test,
+        ).grid(row=0, column=1)
+        self._lib_test_result = _label(test_row, "", color=T.TEXT_SECONDARY, small=True)
+        self._lib_test_result.grid(row=0, column=2, padx=(8, 0))
+
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.pack(fill="x", padx=20, pady=(10, 16))
+        RttButton(
+            btns, text="Save Entry", height=34, width=110,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_PRIMARY, hover_color=T.SIDEBAR_BTN_HOVER,
+            text_color="#000000",
+            command=self._lib_save_entry,
+        ).pack(side="right", padx=(6, 0))
+        RttButton(
+            btns, text="Save All to File", height=34, width=140,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SUCCESS, hover_color="#00c853",
+            text_color="#000000",
+            command=self._save_all,
+        ).pack(side="right")
+
+    def _lib_test(self):
+        from src.core.systemtestliste.utils import extract_library_version
+        text    = self._lib_test_entry.get().strip()
+        anchor  = self._lib_search_var.get().strip()
+        pattern = self._lib_pattern_var.get().strip()
+        if not text:
+            self._lib_test_result.configure(text="—", text_color=T.TEXT_SECONDARY)
+            return
+        try:
+            result = extract_library_version(text, anchor, pattern)
+            if result:
+                self._lib_test_result.configure(
+                    text=f"✓  {result}", text_color=T.ACCENT_SUCCESS)
+            else:
+                self._lib_test_result.configure(
+                    text="✗  No match", text_color=T.ACCENT_DANGER)
+        except re.error as exc:
+            self._lib_test_result.configure(
+                text=f"Regex error: {exc}", text_color=T.ACCENT_WARNING)
+
+    def _lib_save_entry(self):
+        search_text     = self._lib_search_var.get().strip()
+        version_pattern = self._lib_pattern_var.get().strip()
+        if not search_text:
+            messagebox.showwarning("Empty", "Anchor text cannot be empty.")
+            return
+        if version_pattern:
+            try:
+                re.compile(version_pattern)
+            except re.error as exc:
+                messagebox.showerror("Invalid Regex",
+                                     f"Version pattern compile error:\n{exc}")
+                return
+        self._presets.setdefault("library_extraction", {}).update({
+            "search_text":     search_text,
+            "version_pattern": version_pattern or r"[vV]\d+\.\d+",
+        })
+        messagebox.showinfo("Saved",
+                            "Library extraction settings updated.\n"
+                            "Click \"Save All to File\" to persist to presets.json.")
+
+    # ════════════════════════════════════════════════════════════
     def _save_page_numbers(self):
         """Persist only the three page numbers immediately."""
         try:
@@ -784,6 +921,10 @@ class STLPresetsPage(ctk.CTkFrame):
             pass
         try:
             self._presets["variant_extraction"]["page"] = int(self._var_page_var.get())
+        except ValueError:
+            pass
+        try:
+            self._presets.setdefault("library_extraction", {})["page"] = int(self._lib_page_var.get())
         except ValueError:
             pass
         save_presets(self._presets)
@@ -806,6 +947,15 @@ class STLPresetsPage(ctk.CTkFrame):
             self._presets["variant_extraction"]["page"] = int(self._var_page_var.get())
         except ValueError:
             pass
+        try:
+            self._presets.setdefault("library_extraction", {})["page"] = int(self._lib_page_var.get())
+        except ValueError:
+            pass
+        # persist library search_text and version_pattern from the card entries
+        if hasattr(self, "_lib_search_var"):
+            self._presets.setdefault("library_extraction", {})["search_text"] = self._lib_search_var.get().strip()
+        if hasattr(self, "_lib_pattern_var"):
+            self._presets.setdefault("library_extraction", {})["version_pattern"] = self._lib_pattern_var.get().strip()
 
         save_presets(self._presets)
         messagebox.showinfo("Saved", "Presets saved to config/presets.json")

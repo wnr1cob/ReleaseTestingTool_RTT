@@ -83,5 +83,10 @@
         "swfl": "SWFL-0000DE1C"
       }
     ]
+  },
+  "library_extraction": {
+    "page": 3,
+    "search_text": "Used version of custom library",
+    "version_pattern": "[vV]\\d+\\.\\d+"
   }
 }

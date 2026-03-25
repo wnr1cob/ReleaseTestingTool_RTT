@@ -124,8 +124,9 @@ def find_header_row(
     best_idx, best_score = 0, 0
 
     for i, row in enumerate(all_rows):
-        cells_lower = [str(c).strip().lower() for c in row]
-        score = sum(1 for cand in candidates_lower if cand in cells_lower)
+        # Use a set for O(1) membership test instead of O(n) list scan.
+        cells_set = {str(c).strip().lower() for c in row}
+        score = sum(1 for cand in candidates_lower if cand in cells_set)
         if score > best_score:
             best_score, best_idx = score, i
 

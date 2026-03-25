@@ -14,6 +14,95 @@ Format per entry:
 
 ---
 
+## v2.5.0 — 2026-03-25
+### Added
+- **Per-step processing time display** in the SystemTestListe Analyzer:
+  - Each progress segment label updates with its elapsed wall-clock time once
+    that step completes (e.g. `Reading Excel (0.4s)`, `Scanning PDFs (12.3s)`,
+    `Report (0.8s)`).
+  - Timing uses `time.perf_counter()` for high-resolution measurement.
+  - Labels are updated thread-safely via the existing `_ui()` dispatcher.
+  - `SegmentedProgressBar` gains a new `set_segment_label(index, text)` public
+    method; `reset()` now also restores all segment labels to their original
+    values so re-runs show a clean state.
+
+### Changed
+- **Performance optimisations** across the core analyser layer:
+  - `utils.py` — `_VER_RE` regex moved to module level (compiled once, not per
+    PDF call); `_SW_PATTERN_CACHE` dict introduced so user-supplied SW regex
+    patterns are compiled only on first use and reused on every subsequent call.
+  - `report_writer.py` — style objects (`PatternFill`, `Font`, `Border`,
+    `Alignment`) pre-created once before data loops; the same instances are
+    reused across all rows and all tabs, reducing per-cell object allocation
+    from O(rows×cols) to O(distinct\_styles).
+  - `excel_reader.py` — header-candidate lookup converted from `list` to `set`
+    for O(1) membership test in `find_header_row`.
+  - `pdf_matcher.py` — parallel PDF scanning via `ThreadPoolExecutor` (up to 8
+    workers); `gc.collect()` called after each PDF worker and after the full
+    batch to release pdfplumber page objects promptly.
+
+---
+
+## v2.4.0 — 2026-03-25
+### Changed
+- **`utils.py` — `extract_library_version()` rewritten**:
+  - Replaces the collapsed-whitespace + 6-line-fallback strategy with a strict
+    line-based approach: finds the line containing the anchor phrase (case-insensitive)
+    and inspects that line plus the next **3 lines only** (4-line window).
+  - Version token pattern is now fixed as `[vV] ?\d+(?:\.\d+)?` — matches
+    `V2`, `v 2`, `V114.0`, `v 2.5`, etc.
+  - Result is **normalised**: spaces removed and uppercased (`"V 2"` → `"V2"`).
+  - Returns `None` (instead of `""`) when not found; callers are unaffected
+    since both are falsy.
+- **`report_writer.py` — MainSheet & detail tabs overhaul**:
+  - New **`Report`** column added to MainSheet immediately after `PDFResult`;
+    shows `✓ Available` (green) or `✗ No Report` (grey/bold) per row.
+  - No-report rows receive a distinct light-grey row tint (`F2F2F2`).
+  - Detail tabs follow an explicit **three-step** creation order:
+    1. **No Reports** tab — created only when at least one test case has no
+       matched PDF; lists Test Case ID and Name.
+    2. **Result Mismatches**, **SW Mismatches**, **Variant Mismatches**,
+       **Library — Not Linked** — populated with mismatches only, all
+       no-report test cases excluded from these tabs.
+    3. **Empty tabs are never created** — tabs with no qualifying rows are
+       skipped entirely.
+- **`systemtestliste_analyzer.py` — folder Browse button gating**:
+  - The **Browse** button in the PDF Reports Directory card is now hidden on
+    page load; it appears only after a SW tab has been selected from the list.
+  - Resetting the tab selection hides the button again.
+
+---
+
+## v2.3.0 — 2026-03-24
+### Added
+- **Library Check** — new end-to-end feature for extracting and validating the
+  custom library version from PDF test reports:
+  - `config/presets.json`: new `library_extraction` section (`page`, `search_text`,
+    `version_pattern`) with sensible defaults.
+  - `presets.py`: `library_extraction` added to `DEFAULT_PRESETS`; `load_presets()`
+    merges the new section; new `library_settings_from_presets()` helper.
+  - `utils.py`: new `extract_library_version(text, search_text, version_pattern)` —
+    collapses whitespace, locates an anchor phrase, and extracts a version token
+    (e.g. `v114.0`) via regex; falls back to a 6-line sliding window.
+  - `pdf_matcher.py`: all three extraction paths (`_extract_page3_full`,
+    `match_pdf_result`, `match_all_rows`) accept `library_page_idx`,
+    `library_search_text`, `library_version_pattern` and return `library_version`
+    in every result dict.
+  - `report_writer.py`: `write_stl_helper()` accepts `library_version_list`;
+    appends a **Library Version** column; rows where the version is absent are
+    highlighted amber (`FFF2CC` row / `FFC000` cell); a dedicated **"Library —
+    Not Linked"** summary sheet is created when any versions are missing.
+  - `stl_presets.py`: new **Library** card (Card 5) with Anchor text entry,
+    Version regex entry, live-test field, and Save Entry / Save All buttons;
+    Library Version page number added to the PDF Extraction Pages card.
+  - `systemtestliste_analyzer.py`: **Library Check** checkbox (default: checked)
+    added beside Variant Information; worker reads the checkbox, derives library
+    extraction parameters from presets, passes them to `match_all_rows()`, and
+    forwards `library_version_list` to `write_stl_helper()`; summary message
+    includes `Library: N/total linked` count.
+
+---
+
 ## v2.2.0 — 2026-03-24
 ### Added
 - **`presets.py` — SW pattern management utilities**:

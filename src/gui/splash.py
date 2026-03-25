@@ -24,8 +24,10 @@ import time
 from pathlib import Path
 import tkinter as tk
 import customtkinter as ctk
-
 from src.gui.styles.theme import AppTheme as T
+
+# ── icon path (relative to this file) ─────────────────────────────────────────
+_ICON_PATH = Path(__file__).parent / "icon" / "icon.ico"
 
 # ── settings path ─────────────────────────────────────────────────────────────
 _SETTINGS_PATH = (
@@ -209,6 +211,12 @@ class SplashScreen:
         win.attributes("-topmost", True)
         win.attributes("-alpha", 0.0)          # start transparent for fade-in
 
+        # Set taskbar / titlebar icon on the splash window
+        try:
+            win.iconbitmap(str(_ICON_PATH))
+        except Exception:
+            pass
+
         # Set size first, then let Tk settle before reading screen dimensions.
         # Using win.winfo_screen* after update_idletasks gives the correct
         # primary-monitor values even when the root window is still withdrawn.
@@ -287,15 +295,7 @@ class SplashScreen:
         logo_row = tk.Frame(panel, bg=pal["panel"])
         logo_row.pack(pady=(40, 0))
 
-        # [RTT] coloured badge
-        tk.Label(
-            logo_row,
-            text=" RTT ",
-            font=("Segoe UI", 13, "bold"),
-            fg=pal["badge_fg"],
-            bg=pal["accent"],
-            padx=8, pady=4,
-        ).pack(side="left", padx=(0, 16))
+        # TODO: add logo image here when ready
 
         # App title — fg updated each tick for pulsing glow
         self._title_lbl = tk.Label(
@@ -305,7 +305,7 @@ class SplashScreen:
             fg=pal["text_bright"],
             bg=pal["panel"],
         )
-        self._title_lbl.pack(side="left")
+        self._title_lbl.pack()
 
         # ── Subtitle ──────────────────────────────────────────────────────────
         tk.Label(
@@ -416,7 +416,7 @@ class SplashScreen:
 
         tk.Label(
             foot,
-            text="v2.2.0",
+            text="v2.5.0",
             font=("Segoe UI", 10),
             fg=pal["text_sub"],
             bg=pal["panel"],

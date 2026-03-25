@@ -16,6 +16,13 @@ SW_NAME_RE = re.compile(r"\b(\d{3}_\d{3}_[^_\s]+_\d{2}_\d{2}_[A-Za-z]\d{2})\b")
 # SWFL code pattern (e.g. SWFL-0000DE16)
 _SWFL_RE = re.compile(r"\bSWFL-([0-9A-Fa-f]+)\b")
 
+# Library version pattern – compiled once at module level (was compiled on every call)
+_VER_RE = re.compile(r"[vV] ?\d+(?:\.\d+)?")
+
+# Cache for user-supplied SW-pattern strings → compiled re.Pattern objects.
+# Avoids re.compile() overhead on every extract_sw_name call when patterns are in use.
+_SW_PATTERN_CACHE: dict[str, re.Pattern] = {}
+
 # Default path to Variant_Info.txt (config/ at project root)
 _CONFIG_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "config")
@@ -121,7 +128,12 @@ def extract_sw_name(text: str, patterns: list[str] | None = None) -> str:
     if patterns:
         for pat in patterns:
             try:
-                m = re.search(pat, text)
+                # Use the module-level cache so each pattern string is compiled only once.
+                compiled = _SW_PATTERN_CACHE.get(pat)
+                if compiled is None:
+                    compiled = re.compile(pat)
+                    _SW_PATTERN_CACHE[pat] = compiled
+                m = compiled.search(text)
                 if m:
                     # Return the whole match (group 0); some patterns may
                     # use a capturing group – prefer group 1 if present.
@@ -145,3 +157,48 @@ def extract_variant_from_swfl(text: str, variant_map: dict[str, str]) -> str:
         if code in variant_map:
             return variant_map[code]
     return ""
+
+
+def extract_library_version(
+    text: str,
+    search_text: str = "Used version of custom library",
+    version_pattern: str = r"[vV]\d+\.\d+",
+) -> str | None:
+    """Extract a library version string from *text*.
+
+    Finds the line containing *search_text* (case-insensitive) and inspects
+    that line plus the next 3 lines (4 lines total).  The first token that
+    matches the pattern ``[vV] ?\\d+(\\.\\d+)?`` is returned, normalised to
+    uppercase with any internal spaces removed (e.g. ``"V 2"`` → ``"V2"``).
+
+    Parameters
+    ----------
+    text : str
+        Raw text extracted from the PDF page.
+    search_text : str
+        Anchor phrase whose line starts the search window.
+    version_pattern : str
+        Unused – kept for API compatibility.
+
+    Returns
+    -------
+    str | None
+        Normalised version string (e.g. ``'V114.0'``) or ``None`` when not
+        found.
+    """
+    if not text:
+        return None
+
+    # _VER_RE is now a module-level constant (compiled once, not per call).
+    lines = text.splitlines()
+    anchor_lower = search_text.lower()
+
+    for i, line in enumerate(lines):
+        if anchor_lower in line.lower():
+            window = "\n".join(lines[i: i + 4])
+            m = _VER_RE.search(window)
+            if m:
+                return m.group(0).replace(" ", "").upper()
+            return None  # anchor found but no version in the 4-line window
+
+    return None
