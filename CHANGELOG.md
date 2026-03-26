@@ -14,6 +14,54 @@ Format per entry:
 
 ---
 
+## v3.0.0 — 2026-03-26
+### Fixed
+- **Progress bars no longer hang or show random percentages during processing**:
+  - Root cause: every file processed called `self.after(0, fn)`, flooding the
+    Tkinter event queue with hundreds of callbacks simultaneously. The main
+    thread drained them all in a burst, causing UI freezes and flickering
+    intermediate values.
+  - Replaced the per-call `after(0, ...)` dispatch with a **50 ms poll loop**
+    (`_start_poll` / `_do_poll`) on both `PDFAnalyzerPage` and
+    `SystemTestListeAnalyzerPage`. The worker thread writes to plain instance
+    variables (`_pending_status`, `_pending_segs`, `_pending_seg_labels`);
+    the main thread reads and applies them at a controlled rate (max 20
+    updates/s), keeping the UI fully responsive regardless of workload size.
+  - `_ui()` is retained only for infrequent one-shot events (button re-enable,
+    show/hide buttons) which are unaffected by the queue-flood problem.
+  - `_poll_running = False` is set at every worker exit path (success + all
+    error returns) so the poll loop terminates cleanly.
+
+### Changed
+- **PDF page selection now strictly follows presets — no silent fallbacks**:
+  - `pdf_matcher.py` (`_read_pdf_pages`): removed fallback-to-page-`[1]` /
+    page-`[0]` logic. If the preset page index exceeds the PDF page count, the
+    result is an empty string for that page — no redirect to a different page.
+  - `result_separator.py` (`_detect_result`, `separate_by_result`): hardcoded
+    `pages[1]` replaced with a `page_idx` parameter. When not provided,
+    `result_extraction.page` is read from `config/presets.json` (1-based →
+    0-based conversion). Only the specified page is accessed; returns `None`
+    if it doesn’t exist in the PDF.
+  - `file_copier.py` (`_detect_result_priority`, `smart_deduplicate`):
+    same treatment — `page_idx` parameter, preset-driven default, no
+    `len(pages) < 2` guard with a hardcoded `pages[1]` fallback.
+  - `pdf_analyzer.py` (`_run_worker`): presets are loaded once at the start;
+    `result_page_idx` is derived and forwarded explicitly to
+    `smart_deduplicate`, `_detect_result`, and `separate_by_result`.
+
+- **Logging infrastructure removed; replaced with crash-only traceback writer**:
+  - The always-on `RotatingFileHandler` that wrote to `logs/crash_YYYYMMDD.log`
+    on every run has been removed. A new `_write_crash_log(tb)` helper in
+    `main.py` opens and appends to the log file **only when an unhandled
+    exception actually occurs** — zero file I/O during normal operation.
+  - `import logging` and all `logging.*` calls removed from `main.py` and
+    `src/gui/main_window.py`.
+  - `.gitignore` updated: `logs/*.log` / `logs/*.txt` patterns replaced with
+    `logs/*` (ignores all runtime-generated files in the folder, preserving
+    `logs/README.txt` via the existing `!` exception rule).
+
+---
+
 ## v2.5.0 — 2026-03-25
 ### Added
 - **Per-step processing time display** in the SystemTestListe Analyzer:

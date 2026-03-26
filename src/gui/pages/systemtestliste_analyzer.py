@@ -39,6 +39,11 @@ class SystemTestListePage(ctk.CTkFrame):
         self._sw_name: str = ""
         self._variant: str = ""
         self._result_path: str = ""
+        # poll-based UI update state (worker writes, main thread flushes at 50 ms)
+        self._pending_status: tuple | None = None   # (text, color)
+        self._pending_segs: dict = {}               # {idx: value}
+        self._pending_seg_labels: dict = {}         # {idx: text}
+        self._poll_running: bool = False
         self._build()
 
     # ────────────────────────────────────────────────────────────
@@ -663,17 +668,46 @@ class SystemTestListePage(ctk.CTkFrame):
 
     # ── Thread-safe GUI helpers ─────────────────────────────────
     def _ui(self, fn):
+        """Schedule *fn* on the main thread (one-shot, for infrequent events only)."""
         self.after(0, fn)
 
     def _set_status(self, text: str, color: str = T.TEXT_PRIMARY):
-        self._ui(lambda: self._status_label.configure(text=text, text_color=color))
+        """Worker thread: stash latest status; poll loop applies it."""
+        self._pending_status = (text, color)
 
     def _set_seg(self, idx: int, value: float):
-        self._ui(lambda: self._progress.set_segment(idx, value))
+        """Worker thread: stash latest segment value; poll loop applies it."""
+        self._pending_segs[idx] = value
 
     def _set_seg_label(self, idx: int, text: str):
-        """Thread-safe update of a segment label (e.g. to show elapsed time)."""
-        self._ui(lambda: self._progress.set_segment_label(idx, text))
+        """Worker thread: stash latest segment label; poll loop applies it."""
+        self._pending_seg_labels[idx] = text
+
+    # ── 50 ms poll loop ─────────────────────────────────────
+    def _start_poll(self):
+        """Start the GUI-flush loop. Call from main thread before launching worker."""
+        self._pending_status = None
+        self._pending_segs = {}
+        self._pending_seg_labels = {}
+        self._poll_running = True
+        self.after(50, self._do_poll)
+
+    def _do_poll(self):
+        """Flush any pending worker updates to widgets. Reschedules while running."""
+        if self._pending_status is not None:
+            text, color = self._pending_status
+            self._pending_status = None
+            self._status_label.configure(text=text, text_color=color)
+        if self._pending_segs:
+            for idx, val in self._pending_segs.items():
+                self._progress.set_segment(idx, val)
+            self._pending_segs = {}
+        if self._pending_seg_labels:
+            for idx, lbl in self._pending_seg_labels.items():
+                self._progress.set_segment_label(idx, lbl)
+            self._pending_seg_labels = {}
+        if self._poll_running:
+            self.after(50, self._do_poll)
 
     # ── Open result file ────────────────────────────────────────
     def _open_result_file(self):
@@ -704,6 +738,7 @@ class SystemTestListePage(ctk.CTkFrame):
         self._open_btn.pack_forget()
         self._start_btn.configure(state="disabled", text="Analyzing...")
         self._progress.reset()
+        self._start_poll()
         threading.Thread(target=self._run_worker, daemon=True).start()
 
     # ── Background worker ───────────────────────────────────────
@@ -726,6 +761,7 @@ class SystemTestListePage(ctk.CTkFrame):
             all_rows = read_sheet_data(self._excel_file, self._selected_tab)
         except Exception as e:
             self._set_status(f"  Failed to read Excel: {e}", T.ACCENT_DANGER)
+            self._poll_running = False
             self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
@@ -736,6 +772,7 @@ class SystemTestListePage(ctk.CTkFrame):
             best_idx, _header_row, col_map = find_header_row(all_rows)
         except ValueError as e:
             self._set_status(f"  {e}", T.ACCENT_DANGER)
+            self._poll_running = False
             self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
@@ -857,6 +894,7 @@ class SystemTestListePage(ctk.CTkFrame):
             )
         except Exception as e:
             self._set_status(f"  Failed to save output: {e}", T.ACCENT_DANGER)
+            self._poll_running = False
             self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
@@ -884,6 +922,7 @@ class SystemTestListePage(ctk.CTkFrame):
             f"{match_info}"
         )
         self._set_status(final, T.ACCENT_SUCCESS)
+        self._poll_running = False
         self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
         self._ui(lambda: self._open_btn.pack(side="right", padx=(0, 10)))
 

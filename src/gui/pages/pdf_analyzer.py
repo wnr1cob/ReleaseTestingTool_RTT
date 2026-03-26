@@ -10,6 +10,7 @@ from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
 from src.gui.widgets.hover_button import RttButton
 from src.core.pdf_analyzer.file_copier import copy_pdfs, load_canonical_map, smart_deduplicate
+from src.core.systemtestliste.presets import load_presets as _load_presets
 from src.gui.dialogs.canonical_names_dialog import CanonicalNamesDialog
 
 # Resolve config path so it works both in dev and when packaged as a .exe.
@@ -35,6 +36,10 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent", **kwargs)
         self._selected_dir: str = ""
         self._pdf_files: list[str] = []
+        # poll-based UI update state (worker writes, main thread flushes at 50 ms)
+        self._pending_status: tuple | None = None   # (text, color)
+        self._pending_segs: dict = {}               # {idx: value}
+        self._poll_running: bool = False
         self._build()
 
     def _build(self):
@@ -389,6 +394,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         # Disable button to prevent double-clicks
         self._start_btn.configure(state="disabled", text="Processing...")
         self._progress.reset()
+        self._start_poll()
 
         # Launch work on a background thread
         thread = threading.Thread(target=self._run_worker, daemon=True)
@@ -396,19 +402,46 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
     # ── thread-safe GUI helpers ─────────────────────────────────
     def _ui(self, fn):
-        """Schedule *fn* on the main thread."""
+        """Schedule *fn* on the main thread (one-shot, for infrequent events only)."""
         self.after(0, fn)
 
     def _set_status(self, text: str, color: str = T.TEXT_PRIMARY):
-        self._ui(lambda: self._status_label.configure(text=text, text_color=color))
+        """Worker thread: stash latest status; poll loop applies it."""
+        self._pending_status = (text, color)
 
     def _set_seg(self, idx: int, value: float):
-        self._ui(lambda: self._progress.set_segment(idx, value))
+        """Worker thread: stash latest segment value; poll loop applies it."""
+        self._pending_segs[idx] = value
+
+    # ── 50 ms poll loop ──────────────────────────────────────
+    def _start_poll(self):
+        """Start the GUI-flush loop. Call from main thread before launching worker."""
+        self._pending_status = None
+        self._pending_segs = {}
+        self._poll_running = True
+        self.after(50, self._do_poll)
+
+    def _do_poll(self):
+        """Flush any pending worker updates to widgets. Reschedules while running."""
+        if self._pending_status is not None:
+            text, color = self._pending_status
+            self._pending_status = None
+            self._status_label.configure(text=text, text_color=color)
+        if self._pending_segs:
+            for idx, val in self._pending_segs.items():
+                self._progress.set_segment(idx, val)
+            self._pending_segs = {}
+        if self._poll_running:
+            self.after(50, self._do_poll)
 
     # ── background worker ───────────────────────────────────────
     def _run_worker(self):
         """Heavy I/O work – runs on a daemon thread."""
         total_files = len(self._pdf_files)
+
+        # Load presets once so all steps use the configured page numbers
+        _presets = _load_presets()
+        result_page_idx = _presets["result_extraction"]["page"] - 1  # 1-based → 0-based
 
         # ── Step 1: Copy PDFs to All_Available_Reports ──────────
         parent_dir = os.path.dirname(self._selected_dir)
@@ -444,7 +477,8 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                 self._set_status(f"  Deduplicating... {cur}/{tot} — {test_id}")
 
             dedup_result = smart_deduplicate(
-                dest_dir, canonical_map, on_progress=_dedup_progress
+                dest_dir, canonical_map, on_progress=_dedup_progress,
+                result_page_idx=result_page_idx
             )
             parts = []
             if dedup_result["removed"]:
@@ -475,7 +509,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                     fname = os.path.basename(pdf_path)
                     target = os.path.join(dest_dir, fname)
                     path_to_read = target if os.path.exists(target) else pdf_path
-                    detected = _detect_result(path_to_read)
+                    detected = _detect_result(path_to_read, page_idx=result_page_idx)
                     status = detected or "Unknown"
                     file_results.append({"name": fname, "result": status})
                     results_count[status] = results_count.get(status, 0) + 1
@@ -496,6 +530,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                 self._set_seg(1, 1.0)
             except Exception as e:
                 self._set_status(f"  Separator error: {e}", T.ACCENT_DANGER)
+                self._poll_running = False
                 self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
                 return
         else:
@@ -506,7 +541,8 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                     self._set_seg(1, pct)
                     self._set_status(f"  Result separator... {cur}/{tot} — {name}")
 
-                result = separate_by_result(dest_dir, on_progress=_res_progress)
+                result = separate_by_result(dest_dir, on_progress=_res_progress,
+                                            result_page_idx=result_page_idx)
                 self._set_seg(1, 0.5)
 
                 breakdown = ", ".join(
@@ -542,6 +578,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                     self._set_seg(1, 0.5 + 0.5 * (fi + 1) / len(folders_todo))
             except Exception as e:
                 self._set_status(f"  Separator error: {e}", T.ACCENT_DANGER)
+                self._poll_running = False
                 self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
                 return
 
@@ -587,6 +624,8 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
         final_msg = f"  ✅  {copy_summary} PDF(s) → {dest_dir}  |  {sep_msg}  |  📊 {report_name}"
         self._result_folder = dest_dir
+
+        self._poll_running = False
 
         def _finish():
             self._status_label.configure(text=final_msg, text_color=T.ACCENT_SUCCESS)

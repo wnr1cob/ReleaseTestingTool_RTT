@@ -20,9 +20,8 @@ dist/
 dist/
 *.whl
 
-# Logs generated at runtime
-logs/*.log
-logs/*.txt
+# Logs generated at runtime – ignore everything except the README placeholder
+logs/*
 !logs/README.txt
 
 # Output folder (runtime-generated files)

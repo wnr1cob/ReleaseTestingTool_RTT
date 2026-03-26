@@ -6,7 +6,6 @@ Run this file to launch the application.
 import sys
 import os
 import traceback
-import logging
 from datetime import datetime
 
 # Add project root to path
@@ -18,37 +17,35 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import ctypes
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-        "WNR1COB.ReleaseTestingTool.2.4"
+        "WNR1COB.ReleaseTestingTool.3.0"
     )
 except Exception:
     pass
 
-# ── Crash log setup ──────────────────────────────────────────────────────────
-_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-os.makedirs(_LOG_DIR, exist_ok=True)
-_LOG_FILE = os.path.join(_LOG_DIR, f"crash_{datetime.now().strftime('%Y%m%d')}.log")
-
-from logging.handlers import RotatingFileHandler as _RFH
-_handler = _RFH(_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
-_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s",
-                                        datefmt="%Y-%m-%d %H:%M:%S"))
-logging.basicConfig(level=logging.DEBUG, handlers=[_handler])
-
 from src.gui.main_window import MainWindow
+
+
+def _write_crash_log(tb: str) -> str:
+    """Write *tb* to logs/crash_YYYYMMDD.log and return the file path."""
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"crash_{datetime.now().strftime('%Y%m%d')}.log")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a", encoding="utf-8") as fh:
+        fh.write(f"\n{'='*60}\n{timestamp}\n{tb}\n")
+    return log_file
 
 
 def main():
     """Application entry point."""
-    logging.info("Application starting.")
     try:
         app = MainWindow()
         app.run()
-        logging.info("Application exited normally.")
     except KeyboardInterrupt:
-        logging.info("Application interrupted by user.")
+        pass
     except Exception as exc:
         tb = traceback.format_exc()
-        logging.critical("Unhandled exception:\n%s", tb)
+        log_file = _write_crash_log(tb)
         # Show a native error dialog so the user sees the crash reason
         try:
             import tkinter as tk
@@ -58,7 +55,7 @@ def main():
             messagebox.showerror(
                 "Release Testing Tool — Crash",
                 f"An unexpected error occurred:\n\n{exc}\n\n"
-                f"Full details saved to:\n{_LOG_FILE}",
+                f"Full details saved to:\n{log_file}",
             )
             _root.destroy()
         except Exception:

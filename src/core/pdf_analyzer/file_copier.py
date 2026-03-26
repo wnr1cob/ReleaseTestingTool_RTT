@@ -113,13 +113,13 @@ def copy_pdfs(
 
 # ── Helpers for smart deduplication ────────────────────────────────────────
 
-def _detect_result_priority(pdf_path: str) -> int:
-    """Return the numeric priority (0-4) of the result found on page 2."""
+def _detect_result_priority(pdf_path: str, page_idx: int = 1) -> int:
+    """Return the numeric priority (0-4) of the result found on *page_idx* (0-based)."""
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            if len(pdf.pages) < 2:
+            if len(pdf.pages) <= page_idx:
                 return 0
-            text = (pdf.pages[1].extract_text() or "").lower()
+            text = (pdf.pages[page_idx].extract_text() or "").lower()
     except Exception:
         return 0
 
@@ -214,12 +214,13 @@ def smart_deduplicate(
     dest_dir: str,
     canonical_map: dict[str, str],
     on_progress: Callable[[int, int, str], None] | None = None,
+    result_page_idx: int | None = None,
 ) -> dict:
     """Group PDFs in *dest_dir* by test ID, keep the best result, rename to canonical.
 
     For each group of files sharing the same test ID:
-    - The file whose page-2 result has the highest priority
-      (Passed=4 > Failed=3 > Error=2 > Undefined=1 > None=0) is kept.
+    - The file whose result page (from ``result_extraction.page`` in presets)
+      has the highest priority (Passed=4 > Failed=3 > Error=2 > Undefined=1 > None=0) is kept.
     - All other files in the group are deleted.
     - The winner is renamed to ``<canonical_name>.pdf`` when the test ID
       is found in *canonical_map*; otherwise its original filename is kept.
@@ -232,12 +233,21 @@ def smart_deduplicate(
         ``{test_id: canonical_name}`` as returned by :func:`load_canonical_map`.
     on_progress : callable, optional
         ``on_progress(current, total, test_id)`` called after each group.
+    result_page_idx : int, optional
+        0-based page index to read for the result keyword.  When ``None``
+        (default), the value is taken from ``result_extraction.page`` in
+        ``config/presets.json``.
 
     Returns
     -------
     dict
         ``{"removed": int, "renamed": int, "unmatched": int}``
     """
+    if result_page_idx is None:
+        from src.core.systemtestliste.presets import load_presets as _load_presets
+        _presets = _load_presets()
+        result_page_idx = _presets["result_extraction"]["page"] - 1  # convert 1-based → 0-based
+
     pdf_files = [
         f for f in os.listdir(dest_dir)
         if f.lower().endswith(".pdf") and os.path.isfile(os.path.join(dest_dir, f))
@@ -266,7 +276,7 @@ def smart_deduplicate(
             best_file = files[0]
             best_priority = -1
             for fname in files:
-                priority = _detect_result_priority(os.path.join(dest_dir, fname))
+                priority = _detect_result_priority(os.path.join(dest_dir, fname), page_idx=result_page_idx)
                 if priority > best_priority:
                     best_priority = priority
                     best_file = fname

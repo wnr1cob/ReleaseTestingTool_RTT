@@ -265,9 +265,6 @@ class MainWindow:
         window, then calls sys.exit(0) to guarantee the process terminates
         even if daemon threads or tkinter internals are still running.
         """
-        import logging
-        logging.info("Window close requested — shutting down.")
-
         # Close the splash if it is somehow still open
         try:
             if self._splash:

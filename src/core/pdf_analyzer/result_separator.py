@@ -1,8 +1,9 @@
 """
 Result Separator – organise PDFs from All_Available_Reports into
-sub-folders based on the test result found on the second page.
+sub-folders based on the test result found on the preset result page.
 
-The second page of each PDF is read and searched for one of:
+The result page (configured in config/presets.json → result_extraction.page)
+is read and searched for one of:
     Passed, Failed, Error, Undefined
 
 The PDF is then moved into the matching sub-folder under
@@ -10,8 +11,8 @@ The PDF is then moved into the matching sub-folder under
 
 Example
 -------
-    Report_A.pdf  (page 2 contains "Passed")  →  Result_Separated/Passed/Report_A.pdf
-    Report_B.pdf  (page 2 contains "Failed")  →  Result_Separated/Failed/Report_B.pdf
+    Report_A.pdf  (result page contains "Passed")  →  Result_Separated/Passed/Report_A.pdf
+    Report_B.pdf  (result page contains "Failed")  →  Result_Separated/Failed/Report_B.pdf
 """
 
 import os
@@ -20,21 +21,25 @@ from typing import Callable
 
 import pdfplumber
 
+from src.core.systemtestliste.presets import load_presets
+
 
 # Priority order – first match wins when a page contains multiple keywords
 _RESULT_KEYWORDS = ["Passed", "Failed", "Error", "Undefined"]
 
 
-def _detect_result(pdf_path: str) -> str | None:
+def _detect_result(pdf_path: str, page_idx: int = 1) -> str | None:
     """
-    Open *pdf_path*, read the **second page**, and return the first
-    matching result keyword found, or ``None`` if nothing matches.
+    Open *pdf_path*, read the page at *page_idx* (0-based, from
+    ``result_extraction.page`` in presets), and return the first matching
+    result keyword found, or ``None`` if the page doesn't exist or no
+    keyword matches.
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            if len(pdf.pages) < 2:
+            if len(pdf.pages) <= page_idx:
                 return None
-            page_text = pdf.pages[1].extract_text() or ""
+            page_text = pdf.pages[page_idx].extract_text() or ""
     except Exception:
         return None
 
@@ -50,9 +55,10 @@ def _detect_result(pdf_path: str) -> str | None:
 def separate_by_result(
     all_reports_dir: str,
     on_progress: Callable[[int, int, str], None] | None = None,
+    result_page_idx: int | None = None,
 ) -> dict:
     """
-    Scan *all_reports_dir* for PDF files, read page 2 of each,
+    Scan *all_reports_dir* for PDF files, read the result page of each,
     detect the test result, and move the file into
     ``<all_reports_dir>/Result_Separated/<result>/``.
 
@@ -63,6 +69,10 @@ def separate_by_result(
     on_progress : callable, optional
         ``on_progress(current, total, filename)`` called after each file
         is processed so the caller can update a progress bar.
+    result_page_idx : int, optional
+        0-based page index to read for the result keyword.  When ``None``
+        (default), the value is taken from ``result_extraction.page`` in
+        ``config/presets.json``.
 
     Returns
     -------
@@ -75,6 +85,10 @@ def separate_by_result(
             "dest_root": str,
         }
     """
+    if result_page_idx is None:
+        _presets = load_presets()
+        result_page_idx = _presets["result_extraction"]["page"] - 1  # convert 1-based → 0-based
+
     dest_root = os.path.join(all_reports_dir, "Result_Separated")
     os.makedirs(dest_root, exist_ok=True)
 
@@ -97,7 +111,7 @@ def separate_by_result(
         if on_progress:
             on_progress(idx, total, filename)
 
-        result = _detect_result(filepath)
+        result = _detect_result(filepath, page_idx=result_page_idx)
         if result is None:
             skipped += 1
             file_results.append({"name": filename, "result": "Unknown"})

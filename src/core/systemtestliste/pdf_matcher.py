@@ -77,10 +77,7 @@ def _read_pdf_pages(pdf_path: str, page_indices: list[int]) -> dict[int, str]:
             for idx in unique:
                 if idx < n:
                     texts[idx] = pdf.pages[idx].extract_text() or ""
-                elif n >= 2:
-                    texts[idx] = pdf.pages[1].extract_text() or ""
-                elif n >= 1:
-                    texts[idx] = pdf.pages[0].extract_text() or ""
+                # else: page doesn't exist in this PDF – leave as empty string (no fallback to other pages)
     except Exception:
         pass
     return texts
