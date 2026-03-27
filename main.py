@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import ctypes
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-        "WNR1COB.ReleaseTestingTool.3.0"
+        "WNR1COB.ReleaseTestingTool.3.2.1"
     )
 except Exception:
     pass

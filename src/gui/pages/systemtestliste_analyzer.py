@@ -48,6 +48,8 @@ class SystemTestListePage(ctk.CTkFrame):
         self._pending_status: tuple | None = None   # (text, color)
         self._pending_segs: dict = {}               # {idx: value}
         self._pending_seg_labels: dict = {}         # {idx: text}
+        self._pending_counter: tuple | None = None  # (completed, total)
+        self._seg_targets: dict[int, float] = {}    # smooth animation targets
         self._poll_running: bool = False
         self._cancel_event = threading.Event()      # cooperative cancellation
         self._worker_thread: threading.Thread | None = None
@@ -425,7 +427,7 @@ class SystemTestListePage(ctk.CTkFrame):
             text_color=T.TEXT_SECONDARY,
             anchor="w",
         )
-        self._status_label.pack(anchor="w", padx=20, pady=(14, 6))
+        self._status_label.pack(fill="x", padx=20, pady=(14, 6))
 
         self._progress = SegmentedProgressBar(
             self._bottom_card,
@@ -706,6 +708,11 @@ class SystemTestListePage(ctk.CTkFrame):
         with self._poll_lock:
             self._pending_seg_labels[idx] = text
 
+    def _set_counter(self, completed: int, total: int):
+        """Worker thread: stash item counter update; poll loop applies it."""
+        with self._poll_lock:
+            self._pending_counter = (completed, total)
+
     # ── 50 ms poll loop ─────────────────────────────────────
     def _start_poll(self):
         """Start the GUI-flush loop. Call from main thread before launching worker."""
@@ -713,11 +720,13 @@ class SystemTestListePage(ctk.CTkFrame):
             self._pending_status = None
             self._pending_segs = {}
             self._pending_seg_labels = {}
+            self._pending_counter = None
+        self._seg_targets = {}
         self._poll_running = True
         self.after(50, self._do_poll)
 
     def _do_poll(self):
-        """Flush any pending worker updates to widgets. Reschedules while running."""
+        """Flush pending worker updates and animate progress bars toward targets."""
         with self._poll_lock:
             status = self._pending_status
             self._pending_status = None
@@ -725,20 +734,123 @@ class SystemTestListePage(ctk.CTkFrame):
             self._pending_segs.clear()
             seg_labels = dict(self._pending_seg_labels)
             self._pending_seg_labels.clear()
+            counter = self._pending_counter
+            self._pending_counter = None
         if status is not None:
             text, color = status
             self._status_label.configure(text=text, text_color=color)
-        if segs:
-            self._progress.set_segments_batch(segs)
+        if counter is not None:
+            self._progress.set_item_counter(*counter)
+        # Merge new worker values into smooth animation targets
+        self._seg_targets.update(segs)
+        # Lerp each tracked segment toward its target so bars fill gradually.
+        if self._seg_targets:
+            animated: dict[int, float] = {}
+            done: list[int] = []
+            for idx, target in self._seg_targets.items():
+                current = self._progress.get_segment(idx)
+                gap = target - current
+                if gap > 0.015:
+                    # Smooth fill: move 35 % of remaining gap per tick
+                    animated[idx] = current + gap * 0.35
+                elif current != target:
+                    # Close enough — snap to exact target so 100 % shows immediately
+                    animated[idx] = target
+                    done.append(idx)
+                else:
+                    done.append(idx)
+            if animated:
+                self._progress.set_segments_batch(animated)
+            # Remove targets that have been fully reached to stop iterating
+            for idx in done:
+                del self._seg_targets[idx]
         for idx, lbl in seg_labels.items():
             self._progress.set_segment_label(idx, lbl)
         if self._poll_running:
             self.after(50, self._do_poll)
+        elif self._seg_targets:
+            # Worker finished – snap all bars to their exact final values
+            self._progress.set_segments_batch(dict(self._seg_targets))
+            self._seg_targets.clear()
 
     # ── Open result file ────────────────────────────────────────
     def _open_result_file(self):
         if self._result_path and os.path.isfile(self._result_path):
             os.startfile(self._result_path)
+
+    # ── Minimize warning dialog ─────────────────────────────────
+    def _show_minimize_warning(self) -> bool:
+        """Show a blocking 'Don't Minimize' dialog.  Returns True when the
+        user clicks OK, False if they dismiss via the window close button."""
+        confirmed: list[bool] = [False]
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("⚠  Processing")
+        dlg.resizable(False, False)
+        dlg.configure(fg_color=T.BG_CARD)
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+
+        # ── Icon row ──────────────────────────────────────────
+        icon_lbl = ctk.CTkLabel(
+            dlg,
+            text="⚠",
+            font=(T.FONT_FAMILY, 42, "bold"),
+            text_color=T.ACCENT_WARNING,
+        )
+        icon_lbl.pack(padx=40, pady=(28, 4))
+
+        # ── Heading ────────────────────────────────────────────
+        ctk.CTkLabel(
+            dlg,
+            text="Do Not Minimize",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_HEADING, "bold"),
+            text_color=T.TEXT_BRIGHT,
+        ).pack(padx=40, pady=(0, 6))
+
+        # ── Body message ───────────────────────────────────────
+        ctk.CTkLabel(
+            dlg,
+            text=(
+                "The analysis is about to start.\n"
+                "Minimizing or hiding the window during processing\n"
+                "may cause the GUI to freeze or display incorrectly."
+            ),
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
+            text_color=T.TEXT_PRIMARY,
+            justify="center",
+        ).pack(padx=40, pady=(0, 24))
+
+        # ── OK button ──────────────────────────────────────────
+        def _ok():
+            confirmed[0] = True
+            dlg.destroy()
+
+        from src.gui.widgets.hover_button import RttButton as _Btn
+        _Btn(
+            dlg,
+            text="OK – Start Analysis",
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
+            height=40,
+            width=200,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SUCCESS,
+            hover_color="#00c853",
+            text_color="#000000",
+            command=_ok,
+        ).pack(pady=(0, 28))
+
+        dlg.bind("<Return>", lambda _e: _ok())
+
+        # Centre over the parent window
+        dlg.update_idletasks()
+        pw = self.winfo_toplevel()
+        x = pw.winfo_x() + (pw.winfo_width()  - dlg.winfo_width())  // 2
+        y = pw.winfo_y() + (pw.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+
+        self.wait_window(dlg)
+        return confirmed[0]
 
     # ── Start analysis ──────────────────────────────────────────
     def _start_analysis(self):
@@ -759,6 +871,9 @@ class SystemTestListePage(ctk.CTkFrame):
                 text="  Please select the PDF reports directory first.",
                 text_color=T.ACCENT_WARNING,
             )
+            return
+
+        if not self._show_minimize_warning():
             return
 
         self._open_btn.pack_forget()
@@ -813,22 +928,18 @@ class SystemTestListePage(ctk.CTkFrame):
             self._ui(lambda: self._start_btn.configure(state="normal", text="Start"))
             return
 
-        self._set_seg(0, 1.0)
-        _elapsed = time.perf_counter() - _t0
-        self._set_seg_label(0, f"Reading Excel ({_fmt_elapsed(_elapsed)})")
+        self._set_seg(0, 0.8)
 
-        # ── Step 2: Filter rows where Description contains HILTS
+        # ── Filter rows where Description contains HILTS (still part of "Reading Excel")
         self._set_status("  Filtering HILTS rows…")
-        self._set_seg(1, 0.3)
-        _t1 = time.perf_counter()
-
         data_rows = filter_hilts_rows(all_rows, best_idx, col_map)
 
-        self._set_seg(1, 1.0)
+        self._set_seg(0, 1.0)
+        self._set_seg_label(0, f"Reading Excel ({_fmt_elapsed(time.perf_counter() - _t0)})")
 
-        # ── Step 3 & 4: Scan PDFs and collect results ───────────
+        # ── Step 2: Scan PDFs and collect results ───────────────
+        _t1 = time.perf_counter()
         self._set_status("  Scanning PDFs and updating results…")
-        self._set_seg(1, 0.0)
 
         pdf_index   = build_pdf_index(self._pdf_dir)
         sw_name     = self._sw_name  if chk_sw      else ""
@@ -854,6 +965,7 @@ class SystemTestListePage(ctk.CTkFrame):
         def _pdf_progress(processed: int, total_: int, pdf_result: str) -> None:
             frac = processed / total_ if total_ else 1.0
             self._set_seg(1, frac)
+            self._set_counter(processed, total_)
             self._set_status(
                 f"  Scanning PDFs {processed}/{total_}  |  SW: {sw_name or '—'}"
                 f"  |  Variant: {variant or '—'}  |  Last: {pdf_result}",

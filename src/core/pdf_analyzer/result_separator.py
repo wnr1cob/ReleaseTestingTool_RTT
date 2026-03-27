@@ -38,6 +38,8 @@ def _detect_result(pdf_path: str, page_idx: int = 1) -> str | None:
     result keyword found, or ``None`` if the page doesn't exist or no
     keyword matches.
     """
+    if page_idx < 0:
+        return None
     try:
         with pdfplumber.open(pdf_path) as pdf:
             if len(pdf.pages) <= page_idx:

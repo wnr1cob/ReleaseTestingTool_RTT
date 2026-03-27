@@ -18,6 +18,7 @@ class StatusBar(ctk.CTkFrame):
             **kwargs,
         )
         self.pack_propagate(False)
+        self._timer_id: str | None = None
 
         # left – status message
         self._msg = ctk.CTkLabel(
@@ -42,5 +43,16 @@ class StatusBar(ctk.CTkFrame):
         self._msg.configure(text=text, text_color=color)
 
     def _tick(self):
-        self._clock.configure(text=time.strftime("%H:%M:%S"))
-        self.after(1000, self._tick)
+        try:
+            self._clock.configure(text=time.strftime("%H:%M:%S"))
+            self._timer_id = self.after(1000, self._tick)
+        except Exception:
+            pass  # widget destroyed
+
+    def destroy(self):
+        if self._timer_id is not None:
+            try:
+                self.after_cancel(self._timer_id)
+            except Exception:
+                pass
+        super().destroy()

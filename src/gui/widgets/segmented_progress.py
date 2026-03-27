@@ -28,6 +28,8 @@ class SegmentedProgressBar(ctk.CTkFrame):
         self._step_labels: list[ctk.CTkLabel] = []
         self._pct_labels: list[ctk.CTkLabel] = []
         self._values: list[float] = [0.0] * len(segments)
+        # Track current bar colours to avoid redundant configure() redraws
+        self._bar_colors: list[str] = [seg["color"] for seg in segments]
         # Original label texts stored for reset()
         self._original_labels: list[str] = [seg["label"] for seg in segments]
 
@@ -48,6 +50,8 @@ class SegmentedProgressBar(ctk.CTkFrame):
             text="0 %",
             font=(T.FONT_FAMILY, T.FONT_SIZE_BODY, "bold"),
             text_color=T.ACCENT_PRIMARY,
+            width=54,
+            anchor="e",
         )
         self._overall_pct.pack(side="right")
 
@@ -64,21 +68,28 @@ class SegmentedProgressBar(ctk.CTkFrame):
             hdr = ctk.CTkFrame(col, fg_color="transparent")
             hdr.pack(fill="x", pady=(0, 3))
 
-            step_lbl = ctk.CTkLabel(
-                hdr,
-                text=seg["label"],
-                font=(T.FONT_FAMILY, 10),
-                text_color=T.TEXT_SECONDARY,
-            )
-            step_lbl.pack(side="left")
-
+            # Pack pct label FIRST (side="right") so it always gets its
+            # requested width.  The step label fills the remaining space
+            # and will truncate gracefully if too long — instead of
+            # pushing the percentage off-screen.
             pct_lbl = ctk.CTkLabel(
                 hdr,
                 text="0 %",
                 font=(T.FONT_FAMILY, 10, "bold"),
                 text_color=seg["color"],
+                width=44,
+                anchor="e",
             )
             pct_lbl.pack(side="right")
+
+            step_lbl = ctk.CTkLabel(
+                hdr,
+                text=seg["label"],
+                font=(T.FONT_FAMILY, 10),
+                text_color=T.TEXT_SECONDARY,
+                anchor="w",
+            )
+            step_lbl.pack(side="left", fill="x", expand=True)
 
             bar = ctk.CTkProgressBar(
                 col,
@@ -102,13 +113,15 @@ class SegmentedProgressBar(ctk.CTkFrame):
         self._values[index] = value
         # colour shift for completed segments
         color = T.ACCENT_SUCCESS if value >= 1.0 else self._segment_defs[index]["color"]
-        # Batch: single configure per widget to minimise redraws
-        self._bars[index].configure(progress_color=color)
+        pct_text = f"{round(value * 100)} %"
+        # Only reconfigure the bar colour when it actually changes
+        if color != self._bar_colors[index]:
+            self._bars[index].configure(progress_color=color)
+            self._bar_colors[index] = color
+            self._pct_labels[index].configure(text=pct_text, text_color=color)
+        else:
+            self._pct_labels[index].configure(text=pct_text)
         self._bars[index].set(value)
-        self._pct_labels[index].configure(
-            text=f"{int(value * 100)} %",
-            text_color=color,
-        )
         self._update_overall()
 
     def set_segments_batch(self, updates: dict):
@@ -123,12 +136,14 @@ class SegmentedProgressBar(ctk.CTkFrame):
             value = max(0.0, min(1.0, value))
             self._values[index] = value
             color = T.ACCENT_SUCCESS if value >= 1.0 else self._segment_defs[index]["color"]
-            self._bars[index].configure(progress_color=color)
+            pct_text = f"{round(value * 100)} %"
+            if color != self._bar_colors[index]:
+                self._bars[index].configure(progress_color=color)
+                self._bar_colors[index] = color
+                self._pct_labels[index].configure(text=pct_text, text_color=color)
+            else:
+                self._pct_labels[index].configure(text=pct_text)
             self._bars[index].set(value)
-            self._pct_labels[index].configure(
-                text=f"{int(value * 100)} %",
-                text_color=color,
-            )
         if updates:
             self._update_overall()
 
@@ -143,15 +158,22 @@ class SegmentedProgressBar(ctk.CTkFrame):
         """Reset all segments to 0 and restore original labels."""
         for i, seg in enumerate(self._segment_defs):
             self._values[i] = 0.0
+            self._bar_colors[i] = seg["color"]
             self._bars[i].set(0)
             self._bars[i].configure(progress_color=seg["color"])
             self._pct_labels[i].configure(text="0 %", text_color=seg["color"])
             self._step_labels[i].configure(text=self._original_labels[i])
+        self._overall_label.configure(text="Processing")
         self._overall_pct.configure(text="0 %", text_color=T.ACCENT_PRIMARY)
 
     def set_overall_label(self, text: str):
         """Change the top-level label text."""
         self._overall_label.configure(text=text)
+
+    def set_item_counter(self, completed: int, total: int):
+        """Update the overall label to show item completion count (e.g., "Processing — 45 of 100 items")."""
+        label_text = f"Processing — {completed} of {total} items"
+        self._overall_label.configure(text=label_text)
 
     # ── internals ───────────────────────────────────────────────
 
@@ -159,10 +181,6 @@ class SegmentedProgressBar(ctk.CTkFrame):
         """Recalculate the combined percentage from all segments."""
         n = len(self._values)
         overall = sum(self._values) / n if n else 0
-        pct = int(overall * 100)
-        self._overall_pct.configure(text=f"{pct} %")
-
-        if overall >= 1.0:
-            self._overall_pct.configure(text_color=T.ACCENT_SUCCESS)
-        else:
-            self._overall_pct.configure(text_color=T.ACCENT_PRIMARY)
+        pct = round(overall * 100)
+        color = T.ACCENT_SUCCESS if overall >= 1.0 else T.ACCENT_PRIMARY
+        self._overall_pct.configure(text=f"{pct} %", text_color=color)

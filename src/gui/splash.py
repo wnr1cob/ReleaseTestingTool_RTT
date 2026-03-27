@@ -416,7 +416,7 @@ class SplashScreen:
 
         tk.Label(
             foot,
-            text="v3.0.0",
+            text="v3.2.1",
             font=("Segoe UI", 10),
             fg=pal["text_sub"],
             bg=pal["panel"],

@@ -14,6 +14,74 @@ Format per entry:
 
 ---
 
+## v3.2.1 — 2026-03-27
+### Fixed
+- **Settings "Apply & Restart" crash on Windows**: Replaced POSIX-only `os.execv()` with `subprocess.Popen()` + `sys.exit(0)` for cross-platform restart support
+
+- **HoverButton IndexError on empty color value**: Added guard against empty list/tuple returned by `cget("text_color")`, preventing `IndexError` during hover events
+
+- **StatusBar timer resource leak**: Timer callback (`_tick`) was never cancelled on widget destruction, leading to infinite `after()` chain; added timer-ID tracking and `destroy()` override with `after_cancel()`
+
+- **SystemTestListe PDF matcher shared-dict reference bug**: `[{}] * total` created N references to the same dict object; replaced with list comprehension `[{} for _ in range(total)]`
+
+- **PDF Analyzer negative page-index guard**: When preset page numbers are 0, `page - 1` yields −1 (valid Python index = last element); added explicit `< 0` early-return guards in `_detect_result_priority()` and `_detect_result()`
+
+---
+
+## v3.2.0 — 2026-03-27
+### Fixed
+- **Progress bar percentage display stuck at 99%**:
+  - Changed `int()` to `round()` for all percentage display calculations in SegmentedProgressBar widget
+  - Eliminates asymptotic behavior where lerp animation approaches 1.0 but `int(0.997*100)` = 99
+
+- **Progress bar animation never reaches full completion**:
+  - Raised lerp snap threshold from 0.004 to 0.015 to properly snap bars to final values
+  - Cleaned up stale targets in `_seg_targets` dictionary after snapping to prevent lingering state
+
+- **Progress bar segment labels cropping and shifting**:
+  - Added fixed-width labels with right-alignment (`width=44` for segments, `width=54` for overall percentage)
+  - Reordered label packing so percentage label is packed first to prevent child pushes off-screen
+  - Applied `fill="x"` expansion to step labels for graceful text truncation
+
+- **PDF analyzer progress bar stayed empty during report generation**:
+  - Added explicit `_set_seg(2, 1.0)` call after report PDF is written
+  - Added midpoint progress `_set_seg(2, 0.3)` before report generation starts
+
+- **PDF analyzer copy segment went backward during deduplication**:
+  - Added explicit `_set_seg(0, 1.0)` call after copy and deduplication complete
+
+- **SystemTestListe report segment showed no progress during Excel write**:
+  - Added midpoint progress `_set_seg(2, 0.3)` before Excel write begins
+
+- **Redundant widget redraws causing jerky animation**:
+  - Implemented `_bar_colors` tracking to skip `configure()` calls when bar color unchanged
+  - Eliminated duplicate `configure()` calls in `_update_overall()` method
+
+- **Progress bar jumping instead of gradually filling**:
+  - Implemented target-based lerp animation system with `_seg_targets` dictionary
+  - Progress now interpolates 35% of remaining gap per 50ms tick for smooth visual progression
+
+### Added
+- **"Don't Minimize" warning dialog** before processing begins on both analyzers:
+  - Blocks processing start with modal CTkToplevel dialog
+  - Centered over parent window with single OK button
+  - Reminds user that minimizing window during processing may cause freezing
+  - Enter key bound to dismiss dialog
+
+- **Item completion counter in progress bar card**:
+  - Progress bar now displays "Processing — X of Y items" showing current item count and total
+  - PDF Analyzer: Updates for each file copied, deduplicated, detected, and separated
+  - SystemTestListe Analyzer: Updates for each PDF scanned during analysis
+  - Counter increments in real-time as processing advances through each phase
+
+### Changed
+- **Overall percentage label** now displays with fixed width and right-alignment for consistent layout
+- **Segment percentage labels** now display with fixed width and right-alignment for consistent layout
+- **Segmented progress bar update frequency**: All batch updates consolidated via `set_segments_batch()` for reduced overhead
+- **SegmentedProgressBar widget**: Added `set_item_counter(completed, total)` method to display item completion statistics
+
+---
+
 ## v3.1.0 — 2026-03-27
 ### Added
 - **Software version comparison feature** with configurable regex patterns:

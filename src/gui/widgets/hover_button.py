@@ -44,7 +44,7 @@ class RttButton(ctk.CTkButton):
     def _on_enter(self, event=None) -> None:  # type: ignore[override]
         # Snapshot the current text colour before CTkButton changes bg.
         val = self.cget("text_color")
-        self._pre_hover_text = val[0] if isinstance(val, (list, tuple)) else val
+        self._pre_hover_text = val[0] if isinstance(val, (list, tuple)) and val else val
 
         # Apply hover text colour (per-button override > theme default).
         hover_tc = self._hover_text_color_override or T.BTN_HOVER_TEXT

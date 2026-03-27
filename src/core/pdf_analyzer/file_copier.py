@@ -118,6 +118,8 @@ def copy_pdfs(
 
 def _detect_result_priority(pdf_path: str, page_idx: int = 1) -> int:
     """Return the numeric priority (0-4) of the result found on *page_idx* (0-based)."""
+    if page_idx < 0:
+        return 0
     try:
         with pdfplumber.open(pdf_path) as pdf:
             if len(pdf.pages) <= page_idx:

@@ -159,8 +159,10 @@ class SettingsPage(ctk.CTkFrame):
 
     def _restart_app(self):
         """Destroy the current window and relaunch the process."""
+        import subprocess
         root = self.winfo_toplevel()
         root.destroy()
         # Re-execute the same interpreter with the same arguments
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        subprocess.Popen([sys.executable] + sys.argv)
+        sys.exit(0)
 

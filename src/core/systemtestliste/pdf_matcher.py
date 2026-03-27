@@ -294,7 +294,7 @@ def match_all_rows(
     """
     total = len(data_rows)
     # Pre-allocate to preserve input order
-    results: list[dict[str, str]] = [{}] * total
+    results: list[dict[str, str]] = [{} for _ in range(total)]
 
     _lock = threading.Lock()
     _completed = [0]  # mutable counter shared across worker threads
