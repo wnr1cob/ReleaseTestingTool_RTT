@@ -15,12 +15,15 @@ smart_deduplicate(dest_dir, canonical_map, on_progress)
     the canonical name when available.
 """
 import json
+import logging
 import os
 import re
 import shutil
 from typing import Callable
 
 import pdfplumber
+
+logger = logging.getLogger(__name__)
 
 
 # ── Result priority (higher = better) ──────────────────────────────────────
@@ -120,7 +123,11 @@ def _detect_result_priority(pdf_path: str, page_idx: int = 1) -> int:
             if len(pdf.pages) <= page_idx:
                 return 0
             text = (pdf.pages[page_idx].extract_text() or "").lower()
-    except Exception:
+    except (OSError, IOError, ValueError) as exc:
+        logger.warning("Cannot read %s for result priority: %s", pdf_path, exc)
+        return 0
+    except Exception as exc:
+        logger.warning("Unexpected error reading %s: %s", pdf_path, exc)
         return 0
 
     for keyword, priority in sorted(_RESULT_PRIORITY.items(), key=lambda x: -x[1]):
@@ -286,8 +293,8 @@ def smart_deduplicate(
                     try:
                         os.remove(os.path.join(dest_dir, fname))
                         removed += 1
-                    except Exception:
-                        pass
+                    except OSError as exc:
+                        logger.warning("Failed to remove duplicate %s: %s", fname, exc)
             winner = best_file
 
         # Rename to canonical if available
@@ -300,8 +307,8 @@ def smart_deduplicate(
                 try:
                     os.rename(old_path, new_path)
                     renamed += 1
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logger.warning("Failed to rename %s → %s: %s", winner, new_name, exc)
         else:
             unmatched += 1
 

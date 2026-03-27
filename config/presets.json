@@ -3,8 +3,8 @@
     "page": 3,
     "patterns": [
       {
-        "label": "Default SW Pattern",
-        "regex": "\\d{3}_\\d{3}_[^_\\s]+_\\d{2}_\\d{2}_[A-Za-z]\\d{2}"
+        "label": "Default",
+        "regex": "\\d{3}_\\d{3}_[A-Za-z]_\\d{2}_\\d{2}_[Tt]\\d{2}"
       }
     ]
   },
@@ -83,6 +83,9 @@
         "swfl": "SWFL-0000DE1C"
       }
     ]
+  },
+  "sw_comparison": {
+    "regex": "(\\d{3}_\\d{3})_[A-Za-z]_(\\d{2}_\\d{2}_[Tt]\\d{2})"
   },
   "library_extraction": {
     "page": 3,

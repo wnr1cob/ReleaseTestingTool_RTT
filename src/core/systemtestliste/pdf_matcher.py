@@ -13,13 +13,15 @@ match_pdf_result(description, pdf_index, sw_name, variant, variant_map, min_scor
 match_all_rows(data_rows, pdf_index, sw_name, variant, variant_map, on_progress)
     Match every row and return a list of result dicts.
 """
-import gc
+import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
 from .utils import extract_sw_name, extract_variant_from_swfl, extract_library_version
+
+logger = logging.getLogger(__name__)
 
 # Number of parallel PDF workers.  Capped at 8 to avoid overwhelming the OS
 # file-handle limit; pdfplumber I/O releases the GIL so threads help here.
@@ -78,8 +80,10 @@ def _read_pdf_pages(pdf_path: str, page_indices: list[int]) -> dict[int, str]:
                 if idx < n:
                     texts[idx] = pdf.pages[idx].extract_text() or ""
                 # else: page doesn't exist in this PDF – leave as empty string (no fallback to other pages)
-    except Exception:
-        pass
+    except (OSError, IOError, ValueError) as exc:
+        logger.warning("Failed to read PDF %s: %s", pdf_path, exc)
+    except Exception as exc:
+        logger.warning("Unexpected error reading PDF %s: %s", pdf_path, exc)
     return texts
 
 
@@ -143,7 +147,8 @@ def _extract_page3_full(
             "page3_variant": page3_variant,
             "library_version": library_version,
         }
-    except Exception:
+    except Exception as exc:
+        logger.debug("Page-3 extraction failed for %s: %s", pdf_path, exc)
         return {"result": "No Result", "page3_sw": "", "page3_variant": "", "library_version": ""}
 
 
@@ -310,8 +315,6 @@ def match_all_rows(
             library_version_pattern=library_version_pattern,
             min_score=min_score,
         )
-        # Free pdfplumber page objects and extracted text immediately
-        gc.collect()
         return row_idx, match
 
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
@@ -320,7 +323,12 @@ def match_all_rows(
             for idx, row in enumerate(data_rows)
         }
         for future in as_completed(futures):
-            row_idx, match = future.result()
+            try:
+                row_idx, match = future.result()
+            except Exception as exc:
+                row_idx = futures[future]
+                logger.error("Worker failed for row %d: %s", row_idx, exc)
+                match = {"result": "Error", **_NO_PAGE3}
             results[row_idx] = match
             if on_progress:
                 with _lock:
@@ -328,6 +336,4 @@ def match_all_rows(
                     count = _completed[0]
                 on_progress(count, total, match["result"])
 
-    # Final collect after all workers are done
-    gc.collect()
     return results

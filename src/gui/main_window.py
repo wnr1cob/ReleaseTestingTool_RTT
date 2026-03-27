@@ -14,6 +14,7 @@ Layout
 └──────────┴──────────────────────────────────────────────┘
 """
 import customtkinter as ctk
+import logging
 import sys
 from pathlib import Path
 from src.gui.styles.theme import AppTheme as T
@@ -261,10 +262,19 @@ class MainWindow:
     def _on_close(self):
         """Called when the window X button is clicked or the OS closes the app.
 
-        Cancels any pending `after()` callbacks on the root, destroys the
-        window, then calls sys.exit(0) to guarantee the process terminates
-        even if daemon threads or tkinter internals are still running.
+        Signals cooperative cancellation to any active worker pages,
+        destroys the window, then calls sys.exit(0) to guarantee the
+        process terminates even if daemon threads are still running.
         """
+        logger = logging.getLogger("rtt.shutdown")
+        logger.info("Application shutdown initiated")
+
+        # Signal cancellation to worker pages so they can exit cleanly
+        for page in self._pages.values():
+            cancel = getattr(page, "_cancel_event", None)
+            if cancel is not None:
+                cancel.set()
+
         # Close the splash if it is somehow still open
         try:
             if self._splash:
@@ -278,6 +288,7 @@ class MainWindow:
         except Exception:
             pass
 
+        logger.info("Application exiting")
         sys.exit(0)
 
     # ── run ─────────────────────────────────────────────────────

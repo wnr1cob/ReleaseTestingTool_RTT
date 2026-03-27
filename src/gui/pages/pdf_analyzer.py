@@ -1,14 +1,17 @@
 """
 PDF Analyzer page – browse a directory and analyze PDF files.
 """
+import logging
 import os
 import subprocess
 import threading
+import time
 from tkinter import filedialog
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
 from src.gui.widgets.hover_button import RttButton
+from src.utils import fmt_elapsed as _fmt_elapsed
 from src.core.pdf_analyzer.file_copier import copy_pdfs, load_canonical_map, smart_deduplicate
 from src.core.systemtestliste.presets import load_presets as _load_presets
 from src.gui.dialogs.canonical_names_dialog import CanonicalNamesDialog
@@ -37,9 +40,14 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         self._selected_dir: str = ""
         self._pdf_files: list[str] = []
         # poll-based UI update state (worker writes, main thread flushes at 50 ms)
+        self._poll_lock = threading.Lock()          # protects _pending_* dicts
         self._pending_status: tuple | None = None   # (text, color)
         self._pending_segs: dict = {}               # {idx: value}
+        self._pending_seg_labels: dict = {}         # {idx: text}
         self._poll_running: bool = False
+        self._cancel_event = threading.Event()      # cooperative cancellation
+        self._worker_thread: threading.Thread | None = None
+        self._logger = logging.getLogger(__name__)
         self._build()
 
     def _build(self):
@@ -274,6 +282,7 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             segments=[
                 {"label": "Copying",     "color": T.ACCENT_PRIMARY},
                 {"label": "Separating",  "color": T.ACCENT_WARNING},
+                {"label": "Report",      "color": T.ACCENT_SECONDARY},
             ],
         )
         self._progress.pack(fill="x", padx=20, pady=(0, 10))
@@ -394,10 +403,20 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         # Disable button to prevent double-clicks
         self._start_btn.configure(state="disabled", text="Processing...")
         self._progress.reset()
+        self._cancel_event.clear()
         self._start_poll()
 
+        # Snapshot Tk variables on the main thread to avoid cross-thread Tcl access
+        dup_mode_snapshot = self._dup_mode.get()
+        sep_mode_snapshot = self._sep_mode.get()
+
         # Launch work on a background thread
-        thread = threading.Thread(target=self._run_worker, daemon=True)
+        thread = threading.Thread(
+            target=self._run_worker,
+            args=(dup_mode_snapshot, sep_mode_snapshot),
+            daemon=True,
+        )
+        self._worker_thread = thread
         thread.start()
 
     # ── thread-safe GUI helpers ─────────────────────────────────
@@ -407,36 +426,44 @@ class PDFAnalyzerPage(ctk.CTkFrame):
 
     def _set_status(self, text: str, color: str = T.TEXT_PRIMARY):
         """Worker thread: stash latest status; poll loop applies it."""
-        self._pending_status = (text, color)
+        with self._poll_lock:
+            self._pending_status = (text, color)
 
     def _set_seg(self, idx: int, value: float):
         """Worker thread: stash latest segment value; poll loop applies it."""
-        self._pending_segs[idx] = value
+        with self._poll_lock:
+            self._pending_segs[idx] = value
 
     # ── 50 ms poll loop ──────────────────────────────────────
     def _start_poll(self):
         """Start the GUI-flush loop. Call from main thread before launching worker."""
-        self._pending_status = None
-        self._pending_segs = {}
+        with self._poll_lock:
+            self._pending_status = None
+            self._pending_segs = {}
         self._poll_running = True
         self.after(50, self._do_poll)
 
     def _do_poll(self):
         """Flush any pending worker updates to widgets. Reschedules while running."""
-        if self._pending_status is not None:
-            text, color = self._pending_status
+        with self._poll_lock:
+            status = self._pending_status
             self._pending_status = None
+            segs = dict(self._pending_segs)
+            self._pending_segs.clear()
+        if status is not None:
+            text, color = status
             self._status_label.configure(text=text, text_color=color)
-        if self._pending_segs:
-            for idx, val in self._pending_segs.items():
-                self._progress.set_segment(idx, val)
-            self._pending_segs = {}
+        for idx, val in segs.items():
+            self._progress.set_segment(idx, val)
         if self._poll_running:
             self.after(50, self._do_poll)
 
     # ── background worker ───────────────────────────────────────
-    def _run_worker(self):
-        """Heavy I/O work – runs on a daemon thread."""
+    def _run_worker(self, mode: str, sep_mode: str):
+        """Heavy I/O work – runs on a daemon thread.
+
+        Parameters are Tk-variable snapshots captured on the main thread.
+        """
         total_files = len(self._pdf_files)
 
         # Load presets once so all steps use the configured page numbers
@@ -444,10 +471,10 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         result_page_idx = _presets["result_extraction"]["page"] - 1  # 1-based → 0-based
 
         # ── Step 1: Copy PDFs to All_Available_Reports ──────────
+        _t0 = time.perf_counter()
         parent_dir = os.path.dirname(self._selected_dir)
         dest_dir = os.path.join(parent_dir, "All_Available_Reports")
 
-        mode = self._dup_mode.get()
         # For ignore_duplicates, copy ALL files first (with _Dup suffix for
         # same-name conflicts) so every variant lands in dest_dir for comparison.
         copy_mode = "copy_duplicates" if mode == "ignore_duplicates" else mode
@@ -491,11 +518,14 @@ class PDFAnalyzerPage(ctk.CTkFrame):
         else:
             pass  # canonical_map already loaded above (before copy step)
 
+        self._set_seg_label(0, f"Copy ({_fmt_elapsed(time.perf_counter() - _t0)})")
+
         # ── Step 2: Run selected separator ──────────────────────
+        _t1 = time.perf_counter()
         self._set_status("  Running separator...")
         self._set_seg(1, 0.05)
 
-        sep_mode = self._sep_mode.get()
+        # sep_mode already captured as parameter from main thread
         sep_msg = ""
         file_results: list[dict[str, str]] = []
         results_count: dict[str, int] = {}
@@ -544,7 +574,6 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                 result = separate_by_result(dest_dir, on_progress=_res_progress,
                                             result_page_idx=result_page_idx)
                 self._set_seg(1, 0.5)
-
                 breakdown = ", ".join(
                     f"{k}: {v}" for k, v in sorted(result["results"].items())
                 )
@@ -582,7 +611,10 @@ class PDFAnalyzerPage(ctk.CTkFrame):
                 self._ui(lambda: self._start_btn.configure(state="normal", text="▶  Start"))
                 return
 
-        # ── Step 3: Generate Excel report ──────────────────────
+        self._set_seg_label(1, f"Separate ({_fmt_elapsed(time.perf_counter() - _t1)})")
+
+        # ── Step 3: Generate Excel report ────────────────────
+        _t2 = time.perf_counter()
         self._set_status("  Generating Excel report...")
 
         # Apply canonical names to file_results so the Excel shows uniform names
@@ -614,6 +646,8 @@ class PDFAnalyzerPage(ctk.CTkFrame):
             self._report_path = report_path
         except Exception as e:
             report_name = f"Report error: {e}"
+
+        self._set_seg_label(2, f"Report ({_fmt_elapsed(time.perf_counter() - _t2)})")
 
         # ── Finish on the main thread ───────────────────────────
         copy_summary = f"Copied {copied}"

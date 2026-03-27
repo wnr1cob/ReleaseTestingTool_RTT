@@ -11,7 +11,7 @@ _VARIANT_RE = re.compile(r"(_(?:[vV]\d+|NA\d+|G\d+x))$")
 
 # SW Name pattern: NNN_NNN_*_NN_NN_ANN
 # NNN = 3 digits, * = one non-whitespace/non-underscore token, ANN = 1 alpha + 2 digits
-SW_NAME_RE = re.compile(r"\b(\d{3}_\d{3}_[^_\s]+_\d{2}_\d{2}_[A-Za-z]\d{2})\b")
+SW_NAME_RE = re.compile(r"\b(\d{3}_\d{3}_[A-Za-z]_\d{2}_\d{2}_[Tt]\d{2})\b")
 
 # SWFL code pattern (e.g. SWFL-0000DE16)
 _SWFL_RE = re.compile(r"\bSWFL-([0-9A-Fa-f]+)\b")
@@ -202,3 +202,34 @@ def extract_library_version(
             return None  # anchor found but no version in the 4-line window
 
     return None
+
+
+# Cache for the SW comparison regex
+_SW_CMP_CACHE: dict[str, re.Pattern] = {}
+
+
+def normalize_sw_for_comparison(sw: str, cmp_regex: str) -> str:
+    """Reduce an SW name to its comparable key using *cmp_regex*.
+
+    If the regex has capturing groups, the concatenation of all groups is
+    returned (lowered).  If no groups but a match exists, the full match is
+    returned.  Falls back to ``sw.strip().lower()`` when *cmp_regex* is
+    empty or does not match.
+    """
+    if not cmp_regex:
+        return sw.strip().lower()
+
+    compiled = _SW_CMP_CACHE.get(cmp_regex)
+    if compiled is None:
+        try:
+            compiled = re.compile(cmp_regex)
+        except re.error:
+            return sw.strip().lower()
+        _SW_CMP_CACHE[cmp_regex] = compiled
+
+    m = compiled.search(sw)
+    if not m:
+        return sw.strip().lower()
+    if m.lastindex:
+        return "".join(g for g in m.groups() if g).lower()
+    return m.group(0).strip().lower()

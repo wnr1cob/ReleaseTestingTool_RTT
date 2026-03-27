@@ -5,6 +5,8 @@ Run this file to launch the application.
 """
 import sys
 import os
+import logging
+import logging.handlers
 import traceback
 from datetime import datetime
 
@@ -25,6 +27,24 @@ except Exception:
 from src.gui.main_window import MainWindow
 
 
+def _setup_logging() -> None:
+    """Configure the root logger with a rotating file handler."""
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "rtt.log")
+
+    handler = logging.handlers.RotatingFileHandler(
+        log_file, maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+
+
 def _write_crash_log(tb: str) -> str:
     """Write *tb* to logs/crash_YYYYMMDD.log and return the file path."""
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -38,6 +58,9 @@ def _write_crash_log(tb: str) -> str:
 
 def main():
     """Application entry point."""
+    _setup_logging()
+    logger = logging.getLogger("rtt")
+    logger.info("Application starting")
     try:
         app = MainWindow()
         app.run()

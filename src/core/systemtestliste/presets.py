@@ -45,7 +45,7 @@ DEFAULT_PRESETS: dict = {
         "patterns": [
             {
                 "label": "Default SW Pattern",
-                "regex": r"\d{3}_\d{3}_[^_\s]+_\d{2}_\d{2}_[A-Za-z]\d{2}",
+                "regex": r"\d{3}_\d{3}_[A-Za-z]_\d{2}_\d{2}_[Tt]\d{2}",
             }
         ],
     },
@@ -56,6 +56,9 @@ DEFAULT_PRESETS: dict = {
     "variant_extraction": {
         "page": 3,
         "entries": [],
+    },
+    "sw_comparison": {
+        "regex": r"(\d{3}_\d{3})_[A-Za-z]_(\d{2}_\d{2}_[Tt]\d{2})",
     },
     "library_extraction": {
         "page": 3,
@@ -88,6 +91,8 @@ def load_presets(path: str | None = None) -> dict:
             result["result_extraction"].update(data["result_extraction"])
         if "variant_extraction" in data:
             result["variant_extraction"].update(data["variant_extraction"])
+        if "sw_comparison" in data:
+            result["sw_comparison"].update(data["sw_comparison"])
         if "library_extraction" in data:
             result["library_extraction"].update(data["library_extraction"])
         return result
@@ -143,6 +148,11 @@ def result_keywords_from_presets(presets: dict) -> list[str]:
     if kws:
         return kws
     return ["passed", "failed", "error", "undefined", "not executed", "no result"]
+
+
+def sw_comparison_regex_from_presets(presets: dict) -> str:
+    """Return the SW comparison regex string from *presets*, or ``""``."""
+    return presets.get("sw_comparison", {}).get("regex", "").strip()
 
 
 def library_settings_from_presets(presets: dict) -> dict:

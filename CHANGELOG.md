@@ -14,6 +14,59 @@ Format per entry:
 
 ---
 
+## v3.1.0 — 2026-03-27
+### Added
+- **Software version comparison feature** with configurable regex patterns:
+  - New presets section `sw_comparison` with extraction and comparison regexes
+  - `normalize_sw_for_comparison()` utility function extracts regex capture groups
+  - UI card in Presets page for entering/testing comparison regexes (e.g., compare
+    `120_240_A_01_02_T12` vs `120_240_B_01_02_T12` by ignoring the 3rd segment
+    letter and focusing on build/variant/test info).
+  - SystemTestListe Analyzer now compares SW versions using normalized forms for
+    more flexible matching (e.g., prefix match on build part).
+
+- **Preset save button in header** for quick access to save all preset changes
+  to `config/presets.json` without requiring a manual save dialog.
+
+- **Auto-reload of presets** after saving — all UI instances (`_presets` dict,
+  bound variables, extracted regexes) are immediately refreshed so changes take
+  effect without restarting the application.
+
+- **Elapsed time formatting** with human-readable display across both analyzers:
+  - Subsecond times display as decimal (e.g., `"0.4s"`, `"12.3s"`)
+  - Minute-scale times display as `"Xm YYs"` (e.g., `"2m 05s"`)
+  - Hour-scale times display as `"Xh YYm ZZs"` (e.g., `"1h 02m 09s"`)
+  - Applied to all 3 progress segments in both PDF Analyzer and SystemTestListe
+    Analyzer (6 elapsed-time labels total).
+
+### Changed
+- **PDF Analyzer progress bar now includes a "Report" segment** so the full
+  workflow is visible: "Copy" → "Separate" → "Report" (was previously showing
+  only 2 segments; the report generation step runs but was unlabeled).
+
+### Fixed
+- **SystemTestListe tab list scroll position** now auto-resets to the top after
+  selecting a tab or clearing filters, improving UX when switching between tabs
+  with long content.
+
+- **PDF Analyzer worker thread crash** on step label updates:
+  - Root cause: code was calling non-existent `set_step_label()` method on the
+    progress bar, causing an `AttributeError` that crashed the worker thread
+    and froze the UI with the Start button never re-enabling.
+  - Fixed by introducing `_set_seg_label()` helper method that thread-safely
+    buffers label updates in `_pending_seg_labels` and applies them during
+    the 50 ms poll cycle.
+
+- **Progress bar flickering and jitter** during file processing:
+  - Root cause: multiple overlapping calls to `set_segment()` were each triggering
+    a full widget configure() and GUI redraw, causing visible visual artifacts.
+  - Fixed by introducing `set_segments_batch()` method that accepts multiple
+    segment updates in one dict and batches all configure() calls into a single
+    per-widget operation. Both `_do_poll()` loops now use this batched approach
+    instead of per-segment updates, eliminating jitter altogether.
+
+---
+
 ## v3.0.0 — 2026-03-26
 ### Fixed
 - **Progress bars no longer hang or show random percentages during processing**:

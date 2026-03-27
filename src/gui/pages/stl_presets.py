@@ -21,6 +21,7 @@ from src.core.systemtestliste.presets import (
     import_variant_txt,
     try_add_sw_pattern,
     library_settings_from_presets,
+    sw_comparison_regex_from_presets,
 )
 
 
@@ -88,13 +89,21 @@ class STLPresetsPage(ctk.CTkFrame):
         _label(header, "Presets", color=T.TEXT_BRIGHT, bold=True).pack(side="left")
         ctk.CTkLabel(
             header,
-            text="Resut + SW-name patterns and Variant ↔ SWFL mappings for the analyser",
+            text="Result + SW-name patterns and Variant ↔ SWFL mappings for the analyser",
             font=(T.FONT_FAMILY, T.FONT_SIZE_SMALL),
             text_color=T.TEXT_SECONDARY,
         ).pack(side="left", padx=(15, 0), pady=(6, 0))
+        RttButton(
+            header, text="💾  Save All to File", height=34, width=155,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SUCCESS, hover_color="#00c853",
+            text_color="#000000",
+            command=self._save_all,
+        ).pack(side="right")
 
         self._build_pages_card(scroll)
         self._build_sw_card(scroll)
+        self._build_sw_comparison_card(scroll)
         self._build_result_card(scroll)
         self._build_variant_card(scroll)
         self._build_library_card(scroll)
@@ -394,6 +403,129 @@ class STLPresetsPage(ctk.CTkFrame):
                 self._sw_test_result.configure(text="✗  No match", text_color=T.ACCENT_DANGER)
         except re.error as exc:
             self._sw_test_result.configure(text=f"Error: {exc}", text_color=T.ACCENT_WARNING)
+
+    # ══════════════════════════════════════════════════════════════
+    # Card 1b – SW Comparison Regex
+    # ══════════════════════════════════════════════════════════════
+    def _build_sw_comparison_card(self, parent):
+        cmp = self._presets.get("sw_comparison", {})
+        card = ctk.CTkFrame(
+            parent, corner_radius=T.CARD_CORNER,
+            fg_color=T.BG_CARD, border_width=1, border_color=T.BORDER_COLOR,
+        )
+        card.pack(fill="x", padx=30, pady=(0, 15))
+
+        hdr = ctk.CTkFrame(card, fg_color="transparent")
+        hdr.pack(fill="x", padx=20, pady=(16, 0))
+        _label(hdr, "SW Version Comparison Regex", color=T.TEXT_BRIGHT, bold=True).pack(side="left")
+        _label(
+            hdr,
+            "Optional – use capturing groups to compare only parts of the SW name",
+            color=T.TEXT_SECONDARY, small=True,
+        ).pack(side="left", padx=(12, 0), pady=(2, 0))
+
+        _divider(card)
+
+        edit = ctk.CTkFrame(card, fg_color="transparent")
+        edit.pack(fill="x", padx=20, pady=(12, 0))
+        edit.columnconfigure(1, weight=1)
+
+        _label(edit, "Regex:", small=True, color=T.TEXT_SECONDARY).grid(
+            row=0, column=0, sticky="w", padx=(0, 8), pady=4)
+        self._sw_cmp_regex_var = ctk.StringVar(value=cmp.get("regex", ""))
+        ctk.CTkEntry(
+            edit, textvariable=self._sw_cmp_regex_var, height=34,
+            font=(T.FONT_FAMILY, T.FONT_SIZE_BODY),
+            fg_color=T.BG_SIDEBAR, text_color=T.TEXT_PRIMARY,
+            border_color=T.BORDER_COLOR, corner_radius=T.BUTTON_CORNER,
+            placeholder_text=r"e.g. (\d{3}_\d{3})_[^_\s]+_(\d{2}_\d{2}_[A-Za-z]\d{2})",
+        ).grid(row=0, column=1, sticky="ew", pady=4)
+
+        _label(
+            edit,
+            "Leave empty to compare full SW names.  "
+            "Use capturing groups () to compare only those parts.",
+            color=T.TEXT_SECONDARY, small=True,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+        # ── Test row
+        _label(edit, "Test:", small=True, color=T.TEXT_SECONDARY).grid(
+            row=2, column=0, sticky="w", padx=(0, 8), pady=4)
+        test_row = ctk.CTkFrame(edit, fg_color="transparent")
+        test_row.grid(row=2, column=1, sticky="ew", pady=4)
+        test_row.columnconfigure(0, weight=1)
+        test_row.columnconfigure(1, weight=1)
+
+        self._sw_cmp_test_a = _entry(test_row, placeholder="Expected SW (from Excel tab)")
+        self._sw_cmp_test_a.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self._sw_cmp_test_b = _entry(test_row, placeholder="Extracted SW (from PDF)")
+        self._sw_cmp_test_b.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        RttButton(
+            test_row, text="Test", width=60, height=30,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.BG_SIDEBAR, hover_color=T.SIDEBAR_BTN_HOVER,
+            text_color=T.TEXT_PRIMARY,
+            command=self._sw_cmp_test,
+        ).grid(row=0, column=2)
+        self._sw_cmp_test_result = _label(test_row, "", color=T.TEXT_SECONDARY, small=True)
+        self._sw_cmp_test_result.grid(row=0, column=3, padx=(8, 0))
+
+        # ── Buttons
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.pack(fill="x", padx=20, pady=(10, 16))
+        RttButton(
+            btns, text="Save Entry", height=34, width=110,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_PRIMARY, hover_color=T.SIDEBAR_BTN_HOVER,
+            text_color="#000000",
+            command=self._sw_cmp_save_entry,
+        ).pack(side="right", padx=(6, 0))
+        RttButton(
+            btns, text="Save All to File", height=34, width=140,
+            corner_radius=T.BUTTON_CORNER,
+            fg_color=T.ACCENT_SUCCESS, hover_color="#00c853",
+            text_color="#000000",
+            command=self._save_all,
+        ).pack(side="right")
+
+    def _sw_cmp_test(self):
+        from src.core.systemtestliste.utils import normalize_sw_for_comparison
+        regex = self._sw_cmp_regex_var.get().strip()
+        a = self._sw_cmp_test_a.get().strip()
+        b = self._sw_cmp_test_b.get().strip()
+        if not a or not b:
+            self._sw_cmp_test_result.configure(text="—", text_color=T.TEXT_SECONDARY)
+            return
+        if regex:
+            try:
+                re.compile(regex)
+            except re.error as exc:
+                self._sw_cmp_test_result.configure(
+                    text=f"Regex error: {exc}", text_color=T.ACCENT_WARNING)
+                return
+        na = normalize_sw_for_comparison(a, regex)
+        nb = normalize_sw_for_comparison(b, regex)
+        if na == nb:
+            self._sw_cmp_test_result.configure(
+                text=f"✓ MATCH  ({na})", text_color=T.ACCENT_SUCCESS)
+        else:
+            self._sw_cmp_test_result.configure(
+                text=f"✗ MISMATCH  ({na} ≠ {nb})", text_color=T.ACCENT_DANGER)
+
+    def _sw_cmp_save_entry(self):
+        regex = self._sw_cmp_regex_var.get().strip()
+        if regex:
+            try:
+                re.compile(regex)
+            except re.error as exc:
+                messagebox.showerror("Invalid Regex",
+                                     f"Comparison regex compile error:\n{exc}")
+                return
+        self._presets.setdefault("sw_comparison", {})["regex"] = regex
+        messagebox.showinfo("Saved",
+                            "SW comparison regex updated.\n"
+                            'Click "Save All to File" to persist to presets.json.')
+
     # ══════════════════════════════════════════════════════════════
     # Card 2 – Result
     # ════════════════════════════════════════════════════════════
@@ -956,6 +1088,30 @@ class STLPresetsPage(ctk.CTkFrame):
             self._presets.setdefault("library_extraction", {})["search_text"] = self._lib_search_var.get().strip()
         if hasattr(self, "_lib_pattern_var"):
             self._presets.setdefault("library_extraction", {})["version_pattern"] = self._lib_pattern_var.get().strip()
+        # SW comparison regex
+        if hasattr(self, "_sw_cmp_regex_var"):
+            self._presets.setdefault("sw_comparison", {})["regex"] = self._sw_cmp_regex_var.get().strip()
 
         save_presets(self._presets)
+
+        # Reload from disk so the UI always reflects the persisted state
+        self._presets = load_presets()
+        self._sw_page_var.set(str(self._presets["sw_extraction"].get("page", 3)))
+        self._result_page_var.set(str(self._presets["result_extraction"].get("page", 3)))
+        self._var_page_var.set(str(self._presets["variant_extraction"].get("page", 3)))
+        self._lib_page_var.set(str(self._presets.get("library_extraction", {}).get("page", 3)))
+        if hasattr(self, "_lib_search_var"):
+            self._lib_search_var.set(self._presets.get("library_extraction", {}).get("search_text", ""))
+        if hasattr(self, "_lib_pattern_var"):
+            self._lib_pattern_var.set(self._presets.get("library_extraction", {}).get("version_pattern", ""))
+        if hasattr(self, "_sw_cmp_regex_var"):
+            self._sw_cmp_regex_var.set(self._presets.get("sw_comparison", {}).get("regex", ""))
+        self._sw_sel = None
+        self._var_sel = None
+        self._sw_populate_list()
+        self._var_populate_list()
+        if hasattr(self, "_res_list_frame"):
+            self._res_sel = None
+            self._res_populate_list()
+
         messagebox.showinfo("Saved", "Presets saved to config/presets.json")

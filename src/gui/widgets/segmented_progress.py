@@ -100,19 +100,37 @@ class SegmentedProgressBar(ctk.CTkFrame):
         """Set progress for segment *index* (0‑based), value 0.0–1.0."""
         value = max(0.0, min(1.0, value))
         self._values[index] = value
-        self._bars[index].set(value)
-        self._pct_labels[index].configure(text=f"{int(value * 100)} %")
-
         # colour shift for completed segments
-        seg = self._segment_defs[index]
-        if value >= 1.0:
-            self._pct_labels[index].configure(text_color=T.ACCENT_SUCCESS)
-            self._bars[index].configure(progress_color=T.ACCENT_SUCCESS)
-        else:
-            self._pct_labels[index].configure(text_color=seg["color"])
-            self._bars[index].configure(progress_color=seg["color"])
-
+        color = T.ACCENT_SUCCESS if value >= 1.0 else self._segment_defs[index]["color"]
+        # Batch: single configure per widget to minimise redraws
+        self._bars[index].configure(progress_color=color)
+        self._bars[index].set(value)
+        self._pct_labels[index].configure(
+            text=f"{int(value * 100)} %",
+            text_color=color,
+        )
         self._update_overall()
+
+    def set_segments_batch(self, updates: dict):
+        """Update multiple segment values at once; recalculates overall only once.
+
+        Parameters
+        ----------
+        updates : dict
+            ``{index: value}`` mapping – values in 0.0–1.0.
+        """
+        for index, value in updates.items():
+            value = max(0.0, min(1.0, value))
+            self._values[index] = value
+            color = T.ACCENT_SUCCESS if value >= 1.0 else self._segment_defs[index]["color"]
+            self._bars[index].configure(progress_color=color)
+            self._bars[index].set(value)
+            self._pct_labels[index].configure(
+                text=f"{int(value * 100)} %",
+                text_color=color,
+            )
+        if updates:
+            self._update_overall()
 
     def set_segment_label(self, index: int, text: str):
         """Update the step label for segment *index* (e.g. to append elapsed time)."""

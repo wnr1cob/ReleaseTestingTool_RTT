@@ -1,6 +1,7 @@
 """
 SystemTestListe Analyzer page – cross-reference PDF results against an Excel SystemTestListe.
 """
+import logging
 import os
 import time
 import threading
@@ -9,12 +10,15 @@ import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.gui.widgets.segmented_progress import SegmentedProgressBar
 from src.gui.widgets.hover_button import RttButton
+from src.utils import fmt_elapsed as _fmt_elapsed
 from src.core.systemtestliste.utils import parse_sw_variant
+from src.core.systemtestliste.utils import normalize_sw_for_comparison
 from src.core.systemtestliste.presets import (
     load_presets,
     variant_map_from_presets,
     sw_patterns_from_presets,
     result_keywords_from_presets,
+    sw_comparison_regex_from_presets,
 )
 from src.core.systemtestliste.excel_reader import (
     load_sheet_names,
@@ -40,10 +44,14 @@ class SystemTestListePage(ctk.CTkFrame):
         self._variant: str = ""
         self._result_path: str = ""
         # poll-based UI update state (worker writes, main thread flushes at 50 ms)
+        self._poll_lock = threading.Lock()          # protects _pending_* dicts
         self._pending_status: tuple | None = None   # (text, color)
         self._pending_segs: dict = {}               # {idx: value}
         self._pending_seg_labels: dict = {}         # {idx: text}
         self._poll_running: bool = False
+        self._cancel_event = threading.Event()      # cooperative cancellation
+        self._worker_thread: threading.Thread | None = None
+        self._logger = logging.getLogger(__name__)
         self._build()
 
     # ────────────────────────────────────────────────────────────
@@ -618,6 +626,12 @@ class SystemTestListePage(ctk.CTkFrame):
         self._tab_list_frame.pack_forget()
         self._selected_row.pack(fill="x", padx=20, pady=(0, 9))
 
+        # Scroll the page back to the top so the chip and rest of the form are visible
+        try:
+            self._scroll._parent_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
+
     # ── Reset tab selection ─────────────────────────────────────
     def _reset_tab_selection(self):
         """Clear the selected tab and restore the filter + list."""
@@ -648,6 +662,12 @@ class SystemTestListePage(ctk.CTkFrame):
             text_color=T.TEXT_SECONDARY,
         )
 
+        # Scroll back to top so the filter+list are immediately visible
+        try:
+            self._scroll._parent_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
+
     # ── Folder browser ──────────────────────────────────────────
     def _browse_directory(self):
         directory = filedialog.askdirectory(
@@ -673,39 +693,45 @@ class SystemTestListePage(ctk.CTkFrame):
 
     def _set_status(self, text: str, color: str = T.TEXT_PRIMARY):
         """Worker thread: stash latest status; poll loop applies it."""
-        self._pending_status = (text, color)
+        with self._poll_lock:
+            self._pending_status = (text, color)
 
     def _set_seg(self, idx: int, value: float):
         """Worker thread: stash latest segment value; poll loop applies it."""
-        self._pending_segs[idx] = value
+        with self._poll_lock:
+            self._pending_segs[idx] = value
 
     def _set_seg_label(self, idx: int, text: str):
         """Worker thread: stash latest segment label; poll loop applies it."""
-        self._pending_seg_labels[idx] = text
+        with self._poll_lock:
+            self._pending_seg_labels[idx] = text
 
     # ── 50 ms poll loop ─────────────────────────────────────
     def _start_poll(self):
         """Start the GUI-flush loop. Call from main thread before launching worker."""
-        self._pending_status = None
-        self._pending_segs = {}
-        self._pending_seg_labels = {}
+        with self._poll_lock:
+            self._pending_status = None
+            self._pending_segs = {}
+            self._pending_seg_labels = {}
         self._poll_running = True
         self.after(50, self._do_poll)
 
     def _do_poll(self):
         """Flush any pending worker updates to widgets. Reschedules while running."""
-        if self._pending_status is not None:
-            text, color = self._pending_status
+        with self._poll_lock:
+            status = self._pending_status
             self._pending_status = None
+            segs = dict(self._pending_segs)
+            self._pending_segs.clear()
+            seg_labels = dict(self._pending_seg_labels)
+            self._pending_seg_labels.clear()
+        if status is not None:
+            text, color = status
             self._status_label.configure(text=text, text_color=color)
-        if self._pending_segs:
-            for idx, val in self._pending_segs.items():
-                self._progress.set_segment(idx, val)
-            self._pending_segs = {}
-        if self._pending_seg_labels:
-            for idx, lbl in self._pending_seg_labels.items():
-                self._progress.set_segment_label(idx, lbl)
-            self._pending_seg_labels = {}
+        if segs:
+            self._progress.set_segments_batch(segs)
+        for idx, lbl in seg_labels.items():
+            self._progress.set_segment_label(idx, lbl)
         if self._poll_running:
             self.after(50, self._do_poll)
 
@@ -738,19 +764,30 @@ class SystemTestListePage(ctk.CTkFrame):
         self._open_btn.pack_forget()
         self._start_btn.configure(state="disabled", text="Analyzing...")
         self._progress.reset()
+        self._cancel_event.clear()
         self._start_poll()
-        threading.Thread(target=self._run_worker, daemon=True).start()
+
+        # Snapshot Tk variables on the main thread to avoid cross-thread Tcl access
+        chk_result_snap  = self._chk_result_var.get()
+        chk_sw_snap      = self._chk_sw_var.get()
+        chk_variant_snap = self._chk_variant_var.get()
+        chk_library_snap = self._chk_library_var.get()
+
+        thread = threading.Thread(
+            target=self._run_worker,
+            args=(chk_result_snap, chk_sw_snap, chk_variant_snap, chk_library_snap),
+            daemon=True,
+        )
+        self._worker_thread = thread
+        thread.start()
 
     # ── Background worker ───────────────────────────────────────
-    def _run_worker(self):
-        """Analysis worker – runs on a daemon thread."""
-        from datetime import datetime
+    def _run_worker(self, chk_result: bool, chk_sw: bool, chk_variant: bool, chk_library: bool):
+        """Analysis worker – runs on a daemon thread.
 
-        # Snapshot checkbox values (read from main thread state before bg work)
-        chk_result  = self._chk_result_var.get()
-        chk_sw      = self._chk_sw_var.get()
-        chk_variant = self._chk_variant_var.get()
-        chk_library = self._chk_library_var.get()
+        Checkbox values are captured on the main thread and passed as parameters.
+        """
+        from datetime import datetime
 
         # ── Step 1: Read selected sheet ─────────────────────────
         self._set_status(f"  Reading sheet '{self._selected_tab}' from Excel…")
@@ -778,7 +815,7 @@ class SystemTestListePage(ctk.CTkFrame):
 
         self._set_seg(0, 1.0)
         _elapsed = time.perf_counter() - _t0
-        self._set_seg_label(0, f"Reading Excel ({_elapsed:.1f}s)")
+        self._set_seg_label(0, f"Reading Excel ({_fmt_elapsed(_elapsed)})")
 
         # ── Step 2: Filter rows where Description contains HILTS
         self._set_status("  Filtering HILTS rows…")
@@ -803,6 +840,7 @@ class SystemTestListePage(ctk.CTkFrame):
         presets          = load_presets()
         variant_map      = variant_map_from_presets(presets) if chk_variant else {}
         sw_patterns      = sw_patterns_from_presets(presets) if chk_sw      else None
+        sw_cmp_regex     = sw_comparison_regex_from_presets(presets) if chk_sw else ""
         keywords         = result_keywords_from_presets(presets)
         result_page_idx  = presets["result_extraction"]["page"] - 1
         sw_page_idx      = presets["sw_extraction"]["page"] - 1
@@ -838,7 +876,7 @@ class SystemTestListePage(ctk.CTkFrame):
         )
 
         _pdf_elapsed = time.perf_counter() - _t1
-        self._set_seg_label(1, f"Scanning PDFs ({_pdf_elapsed:.1f}s)")
+        self._set_seg_label(1, f"Scanning PDFs ({_fmt_elapsed(_pdf_elapsed)})")
 
         # Unpack parallel lists from the result dicts
         pdf_results        = [d["result"]          for d in match_dicts]
@@ -860,8 +898,9 @@ class SystemTestListePage(ctk.CTkFrame):
         out_page3_sw: list[str] | None = None
         if chk_sw:
             out_page3_sw   = page3_sw_list
+            norm_expected  = normalize_sw_for_comparison(sw_name, sw_cmp_regex)
             sw_match_flags = [
-                bool(p3) and sw_name.strip().lower() == p3.strip().lower()
+                bool(p3) and norm_expected == normalize_sw_for_comparison(p3, sw_cmp_regex)
                 for p3 in page3_sw_list
             ]
 
@@ -901,7 +940,7 @@ class SystemTestListePage(ctk.CTkFrame):
         self._result_path = output_path
         self._set_seg(2, 1.0)
         _report_elapsed = time.perf_counter() - _t2
-        self._set_seg_label(2, f"Report ({_report_elapsed:.1f}s)")
+        self._set_seg_label(2, f"Report ({_fmt_elapsed(_report_elapsed)})")
 
         # ── Summary message ───────────────────────────────────────
         parts: list[str] = []

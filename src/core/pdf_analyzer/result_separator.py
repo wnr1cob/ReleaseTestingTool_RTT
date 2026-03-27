@@ -15,6 +15,7 @@ Example
     Report_B.pdf  (result page contains "Failed")  →  Result_Separated/Failed/Report_B.pdf
 """
 
+import logging
 import os
 import shutil
 from typing import Callable
@@ -22,6 +23,8 @@ from typing import Callable
 import pdfplumber
 
 from src.core.systemtestliste.presets import load_presets
+
+logger = logging.getLogger(__name__)
 
 
 # Priority order – first match wins when a page contains multiple keywords
@@ -40,7 +43,11 @@ def _detect_result(pdf_path: str, page_idx: int = 1) -> str | None:
             if len(pdf.pages) <= page_idx:
                 return None
             page_text = pdf.pages[page_idx].extract_text() or ""
-    except Exception:
+    except (OSError, IOError, ValueError) as exc:
+        logger.warning("Cannot read %s for result detection: %s", pdf_path, exc)
+        return None
+    except Exception as exc:
+        logger.warning("Unexpected error reading %s: %s", pdf_path, exc)
         return None
 
     # Case-insensitive search, but return the canonical keyword
