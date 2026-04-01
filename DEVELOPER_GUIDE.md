@@ -575,16 +575,23 @@ RTT uses **Semantic Versioning** with three numeric segments: `MAJOR.MINOR.PATCH
 
 ### Rules every contributor must follow
 
-1. **Every PR / commit that ships to `main` must bump the version** in all three
-   places: `APP_VERSION` constant (see below), `CHANGELOG.md`, and `README.md`.
+1. **Every PR / commit that ships to `main` must bump the version** in all places:
+   - `src/version.py` — `__version__ = "X.Y.Z"` (single source of truth)
+   - `CHANGELOG.md` — add new entry block at the top
+   - `README.md` — update header
+   - `DEVELOPER_GUIDE.md` — update this section's current version note
+
+   All GUI version displays (`splash.py`, `sidebar.py`, `main.py`) now import from 
+   `src.version.__version__` so they automatically stay in sync.
 
 2. **Update `CHANGELOG.md`** — add a new `## vX.Y.Z — YYYY-MM-DD` block at the
    top of the file describing what was Added / Changed / Fixed / Removed.
 
-3. **Version string locations** — keep these three in sync:
-   - `src/gui/splash.py` — footer label: `text="vX.Y.Z"`
-   - `src/gui/widgets/sidebar.py` — bottom label: `text="vX.Y.Z"`
-   - `README.md` — `**Current version: vX.Y.Z**` line
+3. **Version string locations** — automatically kept in sync via `src.version.__version__`:
+   - `src/gui/splash.py` — imports `__version__`, displays `f"v{__version__}"`
+   - `src/gui/widgets/sidebar.py` — imports `__version__`, displays `f"v{__version__}"`
+   - `main.py` — imports `__version__`, uses in taskbar ID: `f"WNR1COB.ReleaseTestingTool.{__version__}"`
+   - `README.md` — `**Current version: vX.Y.Z**` line (update manually alongside code bump)
 
 4. **Do not skip versions.** If two patches and one minor feature land together,
    bump to the minor version only (e.g. `1.2.0` → `1.3.0`, not `1.2.2` then
@@ -603,6 +610,6 @@ Is it a visual / UX improvement to an existing
   feature (new animation, colour, layout tweak)?  → Minor  (x.Y.0)
 ```
 
-### Current version: v3.2.1
+### Current version: v4.0.0
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.

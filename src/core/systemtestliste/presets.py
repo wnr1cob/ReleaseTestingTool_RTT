@@ -30,12 +30,9 @@ import os
 import re
 
 # ── default location ────────────────────────────────────────────
-_CONFIG_DIR = os.path.normpath(
-    os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "..", "config",
-    )
-)
+# Resolved via config_manager so it works correctly when frozen by PyInstaller.
+from src.utils.config_manager import get_config_dir as _get_config_dir
+_CONFIG_DIR = _get_config_dir()
 PRESETS_PATH = os.path.join(_CONFIG_DIR, "presets.json")
 
 # ── canonical defaults (used when file is missing / corrupt) ───

@@ -162,7 +162,14 @@ class SettingsPage(ctk.CTkFrame):
         import subprocess
         root = self.winfo_toplevel()
         root.destroy()
-        # Re-execute the same interpreter with the same arguments
-        subprocess.Popen([sys.executable] + sys.argv)
+        # In frozen (.exe --onefile) mode PyInstaller sets sys.argv[0] to the
+        # exe path — identical to sys.executable — so naively doing
+        # [sys.executable] + sys.argv would produce ["app.exe", "app.exe"],
+        # passing the exe path as a spurious argument that breaks the bootstrap.
+        if getattr(sys, "frozen", False):
+            args = [sys.executable]
+        else:
+            args = [sys.executable] + sys.argv
+        subprocess.Popen(args)
         sys.exit(0)
 

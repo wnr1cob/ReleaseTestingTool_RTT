@@ -5,11 +5,10 @@ import json
 from pathlib import Path
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
+from src.utils.config_manager import get_config_dir
 
-# Resolve absolute path regardless of working directory:
-# theme_manager.py lives at  <project_root>/src/utils/theme_manager.py
-# so 3 parents up  →  <project_root>
-SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "settings.json"
+# Resolved via config_manager so it works correctly when frozen by PyInstaller.
+SETTINGS_PATH = Path(get_config_dir()) / "settings.json"
 DEFAULT_THEME = "light"
 
 # Widget color properties to inspect and remap
@@ -123,13 +122,28 @@ class ThemeManager:
             self._restyle_widgets(child, color_map)
 
     def save(self) -> None:
-        """Persist current theme to settings.json."""
+        """Persist current theme to settings.json atomically."""
+        import tempfile
         try:
             data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             data = {}
         data["theme"] = self._current
-        SETTINGS_PATH.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Atomic write: temp file + os.replace to prevent corruption on crash
+        fd, tmp = tempfile.mkstemp(dir=SETTINGS_PATH.parent, text=True)
+        try:
+            import os as _os
+            with _os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(data, indent=4))
+            _os.replace(tmp, SETTINGS_PATH)
+        except Exception:
+            try:
+                import os as _os
+                _os.remove(tmp)
+            except Exception:
+                pass
+            raise
 
     @property
     def current(self) -> str:

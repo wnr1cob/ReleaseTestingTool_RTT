@@ -16,17 +16,10 @@ from src.core.pdf_analyzer.file_copier import copy_pdfs, load_canonical_map, sma
 from src.core.systemtestliste.presets import load_presets as _load_presets
 from src.gui.dialogs.canonical_names_dialog import CanonicalNamesDialog
 
-# Resolve config path so it works both in dev and when packaged as a .exe.
-# When frozen by PyInstaller, write next to the .exe (sys.executable).
-# In dev, fall back to the project-root config/ folder.
-import sys as _sys
-if getattr(_sys, "frozen", False):
-    # Running as a PyInstaller bundle – place config next to the .exe
-    _BASE_DIR = os.path.dirname(_sys.executable)
-else:
-    # Running from source
-    _BASE_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-_CANONICAL_NAMES_PATH = os.path.join(_BASE_DIR, "config", "canonical_names.json")
+# Config path resolved via config_manager so it works in both dev and
+# frozen (PyInstaller) environments without any conditional logic here.
+from src.utils.config_manager import get_config_dir as _get_config_dir
+_CANONICAL_NAMES_PATH = os.path.join(_get_config_dir(), "canonical_names.json")
 from src.core.pdf_analyzer.module_separator import separate_by_module
 from src.core.pdf_analyzer.result_separator import separate_by_result
 from src.core.pdf_analyzer.report_generator import generate_report

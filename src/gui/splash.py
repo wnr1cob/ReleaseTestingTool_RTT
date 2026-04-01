@@ -25,14 +25,23 @@ from pathlib import Path
 import tkinter as tk
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
+from src.version import __version__
 
-# ── icon path (relative to this file) ─────────────────────────────────────────
-_ICON_PATH = Path(__file__).parent / "icon" / "icon.ico"
+# ── icon path ─────────────────────────────────────────────────────────────────
+# Uses sys._MEIPASS in frozen --onefile mode (where __file__ points into a
+# temp directory) so the bundled icon.ico is found correctly.
+import sys as _sys
+if getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS"):
+    _ICON_PATH = Path(_sys._MEIPASS) / "src" / "gui" / "icon" / "icon.ico"
+else:
+    _ICON_PATH = Path(__file__).parent / "icon" / "icon.ico"
 
 # ── settings path ─────────────────────────────────────────────────────────────
-_SETTINGS_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "config" / "settings.json"
-)
+# Resolved via config_manager so it works in both dev and frozen (PyInstaller
+# --onefile) environments.  The old hardcoded __file__-relative path broke
+# when PyInstaller extracted the bundle to a temp directory.
+from src.utils.config_manager import get_config_dir as _get_config_dir
+_SETTINGS_PATH = Path(_get_config_dir()) / "settings.json"
 
 
 def _get_largest_monitor_rect() -> tuple[int, int, int, int] | None:
@@ -416,7 +425,7 @@ class SplashScreen:
 
         tk.Label(
             foot,
-            text="v3.2.1",
+            text=f"v{__version__}",
             font=("Segoe UI", 10),
             fg=pal["text_sub"],
             bg=pal["panel"],

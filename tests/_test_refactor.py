@@ -124,8 +124,8 @@ for name in ["ABC-Module.pdf", "XYZ-Result.pdf"]:
     open(os.path.join(tmp, name), "wb").write(b"x")
 idx2 = build_pdf_index(tmp)
 check("2 PDFs indexed", lambda: len(idx2), 2)
-check("empty index -> No report", lambda: match_pdf_result("x", []), "No report")
-check("low score -> No report", lambda: match_pdf_result("totally different description", idx2), "No report")
+check("empty index -> No report", lambda: match_pdf_result("x", [])["result"], "No report")
+check("low score -> No report", lambda: match_pdf_result("totally different description", idx2)["result"], "No report")
 
 empty_results = match_all_rows([], idx2)
 check("empty rows -> []", lambda: empty_results, [])

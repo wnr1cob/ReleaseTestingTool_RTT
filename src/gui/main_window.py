@@ -15,6 +15,7 @@ Layout
 """
 import customtkinter as ctk
 import logging
+import os
 import sys
 from pathlib import Path
 from src.gui.styles.theme import AppTheme as T
@@ -29,19 +30,41 @@ from src.gui.pages.stl_presets import STLPresetsPage
 from src.gui.pages.settings import SettingsPage
 from src.gui.splash import SplashScreen
 from src.utils.theme_manager import ThemeManager
+from src.utils.state_manager import save_state
+
+
+def _resolve_icon_path() -> str:
+    """Return the icon path for both dev and PyInstaller --onefile."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return str(Path(sys._MEIPASS) / "src" / "gui" / "icon" / "icon.ico")
+    return str(Path(__file__).parent / "icon" / "icon.ico")
+
+
+_ICON_PATH = _resolve_icon_path()
 
 
 class MainWindow:
     """Top-level application window."""
 
-    def __init__(self):
+    def __init__(self, initial_state: dict | None = None):
+        """Initialize main window.
+
+        Args:
+            initial_state: dict with keys like 'active_page' (restored from previous run)
+        """
+        if initial_state is None:
+            initial_state = {}
+        self._state = initial_state  # Track state for save on exit
+        # ── customtkinter global appearance (must precede apply/appearance_mode) ─
+        # set_default_color_theme defines widget color palettes; it must be
+        # called BEFORE set_appearance_mode (called inside apply()) so that
+        # CTk resolves the light/dark variant of the correct palette.
+        ctk.set_default_color_theme("blue")
+
         # ── Load and apply saved theme BEFORE any widget is created ─
         self._theme_mgr = ThemeManager()
         saved_theme = self._theme_mgr.load()
         self._theme_mgr.apply(saved_theme)
-
-        # ── customtkinter global appearance ─────────────────────
-        ctk.set_default_color_theme("blue")
 
         self.root = ctk.CTk()
         self.root.title("Release Testing Tool")
@@ -52,7 +75,6 @@ class MainWindow:
         self.root.withdraw()
 
         # Try to set window icon (ignore if file missing)
-        _ICON_PATH = str(Path(__file__).parent / "icon" / "icon.ico")
         try:
             self.root.iconbitmap(_ICON_PATH)
         except Exception:
@@ -172,11 +194,12 @@ class MainWindow:
         if self._splash:
             self._splash.close()
             self._splash = None
-        self._show_page(0)
+        # Restore the page that was active during the previous run
+        active_page = self._state.get("active_page", 0)
+        self._show_page(active_page)
         self.root.deiconify()
         self.root.state("zoomed")
         # Re-apply icon after deiconify — Windows may drop it on withdrawn windows
-        _ICON_PATH = str(Path(__file__).parent / "icon" / "icon.ico")
         try:
             self.root.iconbitmap(_ICON_PATH)
         except Exception:
@@ -251,6 +274,7 @@ class MainWindow:
         if page:
             page.pack(fill="both", expand=True)
             self._current_page = page
+            self._state["active_page"] = index  # Track for restoration on next run
 
         # update header text
         labels = [item[0] for item in T.MENU_ITEMS]
@@ -262,12 +286,18 @@ class MainWindow:
     def _on_close(self):
         """Called when the window X button is clicked or the OS closes the app.
 
-        Signals cooperative cancellation to any active worker pages,
-        destroys the window, then calls sys.exit(0) to guarantee the
-        process terminates even if daemon threads are still running.
+        Saves application state, signals cooperative cancellation to any active
+        worker pages, destroys the window, then calls sys.exit(0) to guarantee
+        the process terminates even if daemon threads are still running.
         """
         logger = logging.getLogger("rtt.shutdown")
         logger.info("Application shutdown initiated")
+
+        # Save current state (active page, window geometry, etc.) for next run
+        try:
+            save_state(self._state)
+        except Exception as e:
+            logger.warning(f"Failed to save application state: {e}")
 
         # Signal cancellation to worker pages so they can exit cleanly
         for page in self._pages.values():

@@ -9,6 +9,9 @@ import logging
 import logging.handlers
 import traceback
 from datetime import datetime
+from src.utils.config_manager import ensure_config, get_logs_dir
+from src.utils.state_manager import restore_state, rotate_logs
+from src.version import __version__
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import ctypes
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-        "WNR1COB.ReleaseTestingTool.3.2.1"
+        f"WNR1COB.ReleaseTestingTool.{__version__}"
     )
 except Exception:
     pass
@@ -29,7 +32,7 @@ from src.gui.main_window import MainWindow
 
 def _setup_logging() -> None:
     """Configure the root logger with a rotating file handler."""
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    log_dir = get_logs_dir()
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "rtt.log")
 
@@ -47,7 +50,7 @@ def _setup_logging() -> None:
 
 def _write_crash_log(tb: str) -> str:
     """Write *tb* to logs/crash_YYYYMMDD.log and return the file path."""
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    log_dir = get_logs_dir()
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, f"crash_{datetime.now().strftime('%Y%m%d')}.log")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -59,10 +62,15 @@ def _write_crash_log(tb: str) -> str:
 def main():
     """Application entry point."""
     _setup_logging()
+    ensure_config()
+    rotate_logs(max_files=5)  # Clean up old rotated logs from parent/logs/
+    
     logger = logging.getLogger("rtt")
     logger.info("Application starting")
     try:
-        app = MainWindow()
+        # Restore UI state from previous run (window geometry, active page, etc.)
+        state = restore_state(default={"active_page": 0})
+        app = MainWindow(initial_state=state)
         app.run()
     except KeyboardInterrupt:
         pass

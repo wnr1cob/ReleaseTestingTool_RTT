@@ -14,6 +14,30 @@ Format per entry:
 
 ---
 
+## v4.0.0 — 2026-04-01
+### Changed
+- **Major code restructuring and stabilization**: Comprehensive codebase audit and refactoring to ensure production-grade stability and PyInstaller frozen-mode compatibility
+
+### Fixed
+- **PyInstaller --onefile path resolution failures**: Fixed hardcoded `__file__`-relative paths in `splash.py` and `main_window.py` that broke in frozen executable mode; now correctly detect `sys._MEIPASS` and resolve to bundled resources
+
+- **State manager premature directory creation**: Converted module-level `_STATE_FILE` initialization to lazy-evaluated `_get_state_file()` function; prevents filesystem side effects during import, fixing initialization order issues
+
+- **Theme settings data corruption risk**: Replaced non-atomic `Path.write_text()` with atomic `tempfile.mkstemp()` + `os.replace()` pattern in theme manager's `save()` method; ensures crash-safe writes to `settings.json`
+
+- **SystemTestListe PDF matcher test assertions**: Fixed 50+ refactoring tests that incorrectly compared return dict to string literals; tests now correctly access `dict["result"]` key
+
+- **Missing icon bundle in PyInstaller spec**: Added `('src/gui/icon', 'src/gui/icon')` to datas list in `RTT.spec` and added `collect_dynamic_libs('cryptography')` for Rust dependency bundling
+
+- **Dead code cleanup**: Removed unused imports (`shutil`, `typing.Any`) from `state_manager.py`
+
+### Verified
+- **Regression testing**: 50+ dynamic refactoring checks + 2 unit tests + full syntax validation (0 errors) — all passing
+- **Frozen-mode compatibility**: Icon bundling, path resolution, state/cache/logs directories, theme persistence all verified in --onefile mode
+- **API stability**: 100% backward compatible; no breaking changes to public interfaces
+
+---
+
 ## v3.2.1 — 2026-03-27
 ### Fixed
 - **Settings "Apply & Restart" crash on Windows**: Replaced POSIX-only `os.execv()` with `subprocess.Popen()` + `sys.exit(0)` for cross-platform restart support
