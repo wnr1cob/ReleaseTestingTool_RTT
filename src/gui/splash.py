@@ -27,14 +27,7 @@ import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.version import __version__
 
-# ── icon path ─────────────────────────────────────────────────────────────────
-# Uses sys._MEIPASS in frozen --onefile mode (where __file__ points into a
-# temp directory) so the bundled icon.ico is found correctly.
-import sys as _sys
-if getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS"):
-    _ICON_PATH = Path(_sys._MEIPASS) / "src" / "gui" / "icon" / "icon.ico"
-else:
-    _ICON_PATH = Path(__file__).parent / "icon" / "icon.ico"
+
 
 # ── settings path ─────────────────────────────────────────────────────────────
 # Resolved via config_manager so it works in both dev and frozen (PyInstaller
@@ -220,12 +213,6 @@ class SplashScreen:
         win.attributes("-topmost", True)
         win.attributes("-alpha", 0.0)          # start transparent for fade-in
 
-        # Set taskbar / titlebar icon on the splash window
-        try:
-            win.iconbitmap(str(_ICON_PATH))
-        except Exception:
-            pass
-
         # Set size first, then let Tk settle before reading screen dimensions.
         # Using win.winfo_screen* after update_idletasks gives the correct
         # primary-monitor values even when the root window is still withdrawn.
@@ -300,17 +287,14 @@ class SplashScreen:
         panel = tk.Frame(self._win, bg=pal["panel"])
         panel.place(x=2, y=2, width=W - 4, height=H - 4)
 
-        # ── Logo row ──────────────────────────────────────────────────────────
-        logo_row = tk.Frame(panel, bg=pal["panel"])
-        logo_row.pack(pady=(40, 0))
-
-        # TODO: add logo image here when ready
-
+        # ── App title ─────────────────────────────────────────────────────
         # App title — fg updated each tick for pulsing glow
+        title_row = tk.Frame(panel, bg=pal["panel"])
+        title_row.pack(pady=(40, 0))
         self._title_lbl = tk.Label(
-            logo_row,
-            text="Release Testing Tool",
-            font=("Segoe UI", 30, "bold"),
+            title_row,
+            text="- A R E S -",
+            font=("Segoe UI", 40, "bold"),
             fg=pal["text_bright"],
             bg=pal["panel"],
         )
@@ -318,8 +302,8 @@ class SplashScreen:
 
         # ── Subtitle ──────────────────────────────────────────────────────────
         tk.Label(
-            panel,
-            text="Test Execution Analysis Suite",
+            title_row,
+            text="Automated Result Ensemble Suite",
             font=("Segoe UI", 13),
             fg=pal["accent"],
             bg=pal["panel"],

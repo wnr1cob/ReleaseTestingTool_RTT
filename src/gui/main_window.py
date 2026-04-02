@@ -27,20 +27,9 @@ from src.gui.pages.pdf_analyzer import PDFAnalyzerPage
 from src.gui.pages.excel_tools import ExcelToolsPage
 from src.gui.pages.systemtestliste_analyzer import SystemTestListePage
 from src.gui.pages.stl_presets import STLPresetsPage
-from src.gui.pages.settings import SettingsPage
 from src.gui.splash import SplashScreen
 from src.utils.theme_manager import ThemeManager
 from src.utils.state_manager import save_state
-
-
-def _resolve_icon_path() -> str:
-    """Return the icon path for both dev and PyInstaller --onefile."""
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return str(Path(sys._MEIPASS) / "src" / "gui" / "icon" / "icon.ico")
-    return str(Path(__file__).parent / "icon" / "icon.ico")
-
-
-_ICON_PATH = _resolve_icon_path()
 
 
 class MainWindow:
@@ -73,12 +62,6 @@ class MainWindow:
 
         # Hide immediately — prevents any flash before build is complete
         self.root.withdraw()
-
-        # Try to set window icon (ignore if file missing)
-        try:
-            self.root.iconbitmap(_ICON_PATH)
-        except Exception:
-            pass
 
         self._pages: dict[int, ctk.CTkFrame] = {}
         self._current_page: ctk.CTkFrame | None = None
@@ -152,24 +135,13 @@ class MainWindow:
                 self.root.after(DELAY, self._build_step, 10)
 
             elif step == 10:
-                s.set_progress(0.78, "Loading support modules")
-                self._pages[3] = PlaceholderPage(self._content, title="Folder Management", icon="")
-                self._pages[4] = PlaceholderPage(self._content, title="Reports", icon="")
+                s.set_progress(0.78, "Loading Presets module")
+                self._pages[3] = STLPresetsPage(self._content)
                 self.root.after(DELAY, self._build_step, 11)
 
             elif step == 11:
-                s.set_progress(0.84, "Loading Presets module")
-                self._pages[5] = STLPresetsPage(self._content)
-                self.root.after(DELAY, self._build_step, 12)
-
-            elif step == 12:
-                s.set_progress(0.91, "Loading Settings module")
-                self._pages[6] = SettingsPage(self._content, theme_mgr=self._theme_mgr)
-                self.root.after(DELAY, self._build_step, 13)
-
-            elif step == 13:
                 s.set_progress(0.93, "Verifying component integrity")
-                self.root.after(DELAY, self._build_step, 14)
+                self.root.after(DELAY, self._build_step, 12)
 
             elif step == 14:
                 s.set_progress(0.98, "Finalizing workspace")
@@ -199,11 +171,6 @@ class MainWindow:
         self._show_page(active_page)
         self.root.deiconify()
         self.root.state("zoomed")
-        # Re-apply icon after deiconify — Windows may drop it on withdrawn windows
-        try:
-            self.root.iconbitmap(_ICON_PATH)
-        except Exception:
-            pass
 
     # ── shell construction (sidebar / header / content) ─────────
     def _build_shell(self):
@@ -219,32 +186,6 @@ class MainWindow:
         header = ctk.CTkFrame(right, height=48, corner_radius=0, fg_color=T.BG_HEADER)
         header.pack(fill="x")
         header.pack_propagate(False)
-
-        # App icon in header — load best-resolution frame from the .ico
-        try:
-            from PIL import Image
-            _ico_path = Path(__file__).parent / "icon" / "icon.ico"
-            _ico_raw  = Image.open(_ico_path)
-            # .ico files can contain multiple sizes; pick the largest square frame
-            try:
-                sizes = [s for s in _ico_raw.info.get("sizes", [])]
-                if sizes:
-                    best = max(sizes, key=lambda s: s[0])
-                    _ico_raw.size = best   # hint for PIL to pick that frame
-            except Exception:
-                pass
-            _ico_img = _ico_raw.convert("RGBA").resize((28, 28), Image.LANCZOS)
-            self._header_icon_img = ctk.CTkImage(
-                light_image=_ico_img, dark_image=_ico_img, size=(28, 28)
-            )
-            ctk.CTkLabel(
-                header,
-                image=self._header_icon_img,
-                text="",
-                fg_color="transparent",
-            ).pack(side="left", padx=(14, 0))
-        except Exception:
-            pass
 
         self._header_title = ctk.CTkLabel(
             header,

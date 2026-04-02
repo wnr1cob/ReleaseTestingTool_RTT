@@ -40,7 +40,7 @@ class Sidebar(ctk.CTkFrame):
 
         ctk.CTkLabel(
             logo_frame,
-            text="Release Tool",
+            text="A R E S",
             font=(T.FONT_FAMILY, T.FONT_SIZE_TITLE, "bold"),
             text_color=T.TEXT_BRIGHT,
         ).pack(side="left")

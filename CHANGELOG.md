@@ -14,6 +14,15 @@ Format per entry:
 
 ---
 
+## v4.0.1 — 2026-04-02
+### Removed
+- Removed application icon from taskbar and header bar display
+- Removed icon data bundle from PyInstaller configuration
+- Hidden Settings tab from menu and initialization
+- Hidden Folder Management and Reports tabs from menu and initialization
+
+---
+
 ## v4.0.0 — 2026-04-01
 ### Changed
 - **Major code restructuring and stabilization**: Comprehensive codebase audit and refactoring to ensure production-grade stability and PyInstaller frozen-mode compatibility

@@ -15,7 +15,6 @@ a = Analysis(
         ('config', 'config'),
         ('resources', 'resources'),
         ('docs', 'docs'),
-        ('src/gui/icon', 'src/gui/icon'),
     ] + collect_data_files('cryptography'),
     hiddenimports=[
         'cryptography',
@@ -54,5 +53,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='src/gui/icon/icon.ico',
 )
