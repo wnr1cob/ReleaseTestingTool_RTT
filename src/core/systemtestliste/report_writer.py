@@ -144,6 +144,15 @@ def write_stl_helper(
     _pre_fill_nl_cell  = _fill(_C_NOT_LINKED_CELL)
     _pre_fill_nr_cell  = _fill(_C_NO_REPORT_CELL)
 
+    # ---- helper to paint match/mismatch cells (hoisted outside loop
+    # to avoid creating a new closure object on every row iteration) ------
+    def _paint(row_idx, col_name, is_mismatch):
+        if col_name not in col_idx_map:
+            return
+        c = ws.cell(row=row_idx, column=col_idx_map[col_name])
+        c.fill = _pre_fill_mm_cell if is_mismatch else _pre_fill_ok_cell
+        c.font = _pre_bold_font    if is_mismatch else _pre_body_font
+
     # ---- write MainSheet data rows -------------------------------------
     for i, (row, pdf_result) in enumerate(zip(data_rows, pdf_results)):
         excel_row_idx = i + 2
@@ -185,16 +194,8 @@ def write_stl_helper(
             if row_fill:
                 cell.fill = row_fill
 
-        # Paint match/mismatch indicator cells
-        def _paint(col_name, is_mismatch):
-            if col_name not in col_idx_map:
-                return
-            c = ws.cell(row=excel_row_idx, column=col_idx_map[col_name])
-            c.fill = _pre_fill_mm_cell if is_mismatch else _pre_fill_ok_cell
-            c.font = _pre_bold_font    if is_mismatch else _pre_body_font
-
         if match_flags is not None:
-            _paint("ResultMatch", result_mismatch)
+            _paint(excel_row_idx, "ResultMatch", result_mismatch)
             if result_mismatch:
                 ws.cell(row=excel_row_idx,
                         column=col_idx_map["PDFResult"]).fill = _pre_fill_mm_cell
@@ -204,13 +205,13 @@ def write_stl_helper(
                             column=stl_res_col).fill = _pre_fill_mm_cell
 
         if sw_match_flags is not None:
-            _paint("SWMatch", sw_mismatch)
+            _paint(excel_row_idx, "SWMatch", sw_mismatch)
             if sw_mismatch and "Page3_SW" in col_idx_map:
                 ws.cell(row=excel_row_idx,
                         column=col_idx_map["Page3_SW"]).fill = _pre_fill_mm_cell
 
         if variant_match_flags is not None:
-            _paint("VariantMatch", variant_mismatch)
+            _paint(excel_row_idx, "VariantMatch", variant_mismatch)
             if variant_mismatch and "Page3_Variant" in col_idx_map:
                 ws.cell(row=excel_row_idx,
                         column=col_idx_map["Page3_Variant"]).fill = _pre_fill_mm_cell

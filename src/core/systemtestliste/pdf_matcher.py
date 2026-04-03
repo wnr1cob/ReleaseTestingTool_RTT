@@ -17,6 +17,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 from typing import Callable
 
 from .utils import extract_sw_name, extract_variant_from_swfl, extract_library_version
@@ -171,6 +172,7 @@ def match_pdf_result(
     library_search_text: str = "",
     library_version_pattern: str = r"[vV]\d+\.\d+",
     min_score: float = MIN_SCORE,
+    _lowered_index: list[tuple[str, str]] | None = None,
 ) -> dict[str, str]:
     """Fuzzy-match *description* against *pdf_index* and extract test data.
 
@@ -196,15 +198,25 @@ def match_pdf_result(
     dict
         ``{"result": str, "page3_sw": str, "page3_variant": str, "library_version": str}``
     """
-    from difflib import SequenceMatcher
-
     descr_norm = description.strip().lower()
     best: tuple[str | None, float] = (None, 0.0)
 
-    for pname, ppath in pdf_index:
-        score = SequenceMatcher(None, descr_norm, pname.lower()).ratio()
-        if score > best[1]:
-            best = (ppath, score)
+    # Use pre-lowered index when available (from match_all_rows) to avoid
+    # calling .lower() on every PDF name for every row comparison.
+    index = _lowered_index if _lowered_index is not None else [
+        (n.lower(), p) for n, p in pdf_index
+    ]
+
+    # Reuse one SequenceMatcher: set_seq2 caches internal data for
+    # descr_norm; quick_ratio() is O(n+m) and skips the expensive O(n×m)
+    # ratio() when the upper-bound is already below min_score.
+    sm = SequenceMatcher(None, "", descr_norm)
+    for pname_lower, ppath in index:
+        sm.set_seq1(pname_lower)
+        if sm.quick_ratio() >= min_score:
+            score = sm.ratio()
+            if score > best[1]:
+                best = (ppath, score)
 
     matched, score = best
     if not matched or score < min_score:
@@ -296,6 +308,10 @@ def match_all_rows(
     # Pre-allocate to preserve input order
     results: list[dict[str, str]] = [{} for _ in range(total)]
 
+    # Pre-lowercase PDF names once; shared (read-only) across all workers.
+    # Avoids N×M redundant .lower() calls during fuzzy matching.
+    lowered_index = [(name.lower(), path) for name, path in pdf_index]
+
     _lock = threading.Lock()
     _completed = [0]  # mutable counter shared across worker threads
 
@@ -314,6 +330,7 @@ def match_all_rows(
             library_search_text=library_search_text,
             library_version_pattern=library_version_pattern,
             min_score=min_score,
+            _lowered_index=lowered_index,
         )
         return row_idx, match
 
