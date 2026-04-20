@@ -23,6 +23,7 @@ import random
 import time
 from pathlib import Path
 import tkinter as tk
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 import customtkinter as ctk
 from src.gui.styles.theme import AppTheme as T
 from src.version import __version__
@@ -78,6 +79,81 @@ def _load_saved_theme() -> str:
         return t if t in ("light", "dark") else "dark"
     except Exception:
         return "dark"
+
+
+def _get_font_path() -> Path:
+    """Resolve path to custom font file, supporting both dev and frozen modes."""
+    import sys
+    if getattr(sys, "frozen", False):
+        # PyInstaller frozen mode
+        base = Path(getattr(sys, "_MEIPASS", "."))
+    else:
+        # Development mode
+        base = Path(__file__).parent.parent.parent
+    return base / "resources" / "fonts" / "Bungee-Regular.ttf"
+
+
+def _render_title_image(
+    text: str,
+    font_size: int,
+    text_color_rgb: tuple,
+    bg_color_rgb: tuple,
+) -> ImageTk.PhotoImage:
+    """Render text to PIL image using custom font, with fallback to default.
+    
+    Parameters
+    ----------
+    text : str
+        The text to render
+    font_size : int
+        Font size in pixels
+    text_color_rgb : tuple
+        RGB color tuple for text (e.g., (255, 255, 255))
+    bg_color_rgb : tuple
+        RGB color tuple for background (e.g., (19, 25, 34))
+    
+    Returns
+    -------
+    ImageTk.PhotoImage
+        A PhotoImage that can be used in tk.Label(image=...)
+    """
+    # Try to load custom font, fall back to default
+    font_path = _get_font_path()
+    try:
+        if font_path.exists():
+            font = ImageFont.truetype(str(font_path), font_size)
+        else:
+            # Font file not found, use PIL default
+            font = ImageFont.load_default()
+    except Exception:
+        # Font loading failed, use PIL default
+        font = ImageFont.load_default()
+    
+    # Create a temporary image to measure text dimensions
+    temp_img = Image.new("RGB", (1, 1), bg_color_rgb)
+    temp_draw = ImageDraw.Draw(temp_img)
+    
+    # Get text bounding box to determine image size
+    bbox = temp_draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Add padding
+    padding = 20
+    img_width = text_width + padding * 2
+    img_height = text_height + padding
+    
+    # Create final image
+    img = Image.new("RGB", (img_width, img_height), bg_color_rgb)
+    draw = ImageDraw.Draw(img)
+    
+    # Draw text centered
+    x = padding
+    y = (img_height - text_height) // 2
+    draw.text((x, y), text, font=font, fill=text_color_rgb)
+    
+    # Convert to PhotoImage
+    return ImageTk.PhotoImage(img)
 
 
 # ── per-theme colour palettes ──────────────────────────────────────────────────
@@ -288,14 +364,21 @@ class SplashScreen:
         panel.place(x=2, y=2, width=W - 4, height=H - 4)
 
         # ── App title ─────────────────────────────────────────────────────
-        # App title — fg updated each tick for pulsing glow
+        # Render custom font title using PIL, fall back to default if font not found
         title_row = tk.Frame(panel, bg=pal["panel"])
         title_row.pack(pady=(40, 0))
+        
+        # Render title image with custom Bungee-Regular font
+        title_img = _render_title_image(
+            "- A R E S -",
+            font_size=40,
+            text_color_rgb=_hex_to_rgb(pal["text_bright"]),
+            bg_color_rgb=_hex_to_rgb(pal["panel"]),
+        )
+        self._title_img = title_img  # Keep reference to prevent garbage collection
         self._title_lbl = tk.Label(
             title_row,
-            text="- A R E S -",
-            font=("Segoe UI", 40, "bold"),
-            fg=pal["text_bright"],
+            image=title_img,
             bg=pal["panel"],
         )
         self._title_lbl.pack()
@@ -303,11 +386,11 @@ class SplashScreen:
         # ── Subtitle ──────────────────────────────────────────────────────────
         tk.Label(
             title_row,
-            text="Automated Result Ensemble Suite",
+            text="Automated Report Ensemble Suite",
             font=("Segoe UI", 13),
             fg=pal["accent"],
             bg=pal["panel"],
-        ).pack(pady=(7, 0))
+        ).pack(pady=(10, 0))
 
         # ── Hairline divider ──────────────────────────────────────────────────
         tk.Frame(panel, bg=pal["border"], height=1).pack(
@@ -471,16 +554,20 @@ class SplashScreen:
             )
 
         # ── title pulse (colour oscillation) ──────────────────────────────────
+        # Note: Title is now rendered as PIL image, so dynamic color changes are not supported.
+        # The pulsing glow effect is skipped for the custom font rendering.
+        # (Previously changed fg color, but image labels don't support that)
         t_osc = (math.sin(self._pulse_t) + 1.0) / 2.0   # 0 → 1
         title_col = _lerp_color(
             self._pal["text_bright"],
             self._pal["accent"],
             t_osc * 0.38,
         )
-        try:
-            self._title_lbl.configure(fg=title_col)
-        except Exception:
-            pass
+        # Color update disabled for PIL-rendered title image
+        # try:
+        #     self._title_lbl.configure(fg=title_col)
+        # except Exception:
+        #     pass
 
         # ── animated loading dots ─────────────────────────────────────────────
         dot_count = 1 + (self._dot_frame // 12 % 3)
