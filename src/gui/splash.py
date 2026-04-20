@@ -303,7 +303,7 @@ class SplashScreen:
         # ── Subtitle ──────────────────────────────────────────────────────────
         tk.Label(
             title_row,
-            text="Automated Result Ensemble Suite",
+            text="Automated Report Ensemble Suite",
             font=("Segoe UI", 13),
             fg=pal["accent"],
             bg=pal["panel"],
