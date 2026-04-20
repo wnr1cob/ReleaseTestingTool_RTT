@@ -7,4 +7,4 @@ Update this constant when releasing a new version.
 See DEVELOPER_GUIDE.md #12 for versioning policy.
 """
 
-__version__ = "4.1.0"
+__version__ = "4.1.1"

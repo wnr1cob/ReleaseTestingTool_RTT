@@ -14,6 +14,18 @@ Format per entry:
 
 ---
 
+## v4.1.1 — 2026-04-20
+### Added
+- **Custom font support**: Integrated Pillow-based font rendering to support custom TrueType fonts (Bungee-Regular) in splash screen title
+- **Font fallback mechanism**: Graceful degradation to PIL default font if custom font file is missing
+- **PyInstaller font bundling**: Updated RTT.spec to include fonts directory in frozen executables
+
+### Changed
+- Splash screen "- A R E S -" title now renders with custom Bungee-Regular font for enhanced visual branding
+- Font loading supports both development and PyInstaller frozen executable modes
+
+---
+
 ## v4.1.0 — 2026-04-20
 ### Added
 - **SW/Variant Analyzer**: New analyzer tab for extracting software versions and variant data from PDFs, identifying unselected versions, and exporting mismatch reports to Excel with separate tabs for SW and Variant mismatches
