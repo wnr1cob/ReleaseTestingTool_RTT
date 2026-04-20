@@ -14,6 +14,21 @@ Format per entry:
 
 ---
 
+## v4.1.0 — 2026-04-20
+### Added
+- **SW/Variant Analyzer**: New analyzer tab for extracting software versions and variant data from PDFs, identifying unselected versions, and exporting mismatch reports to Excel with separate tabs for SW and Variant mismatches
+- **Library Analyzer**: New analyzer tab for scanning PDFs to identify missing library versions and exporting comprehensive reports of PDFs without library information
+- **Dashboard card updates**: Refactored dashboard landing page to showcase the new analyzer tools:
+  - Replaced "Folder Mgmt" with "SW/Variant Analyzer" card
+  - Replaced "Reports" with "Library Analyzer" card
+  - Replaced "Settings" with "Presets" card (configuration and preset management)
+
+### Changed
+- Dashboard now highlights the three primary analysis tools (Report Analyzer, SystemTestListe Analyzer, SW/Variant Analyzer) with Library Analyzer and Presets as supporting features
+- Enhanced onboarding experience with descriptive dashboard cards for all major features
+
+---
+
 ## v4.0.1 — 2026-04-02
 ### Removed
 - Removed application icon from taskbar and header bar display

@@ -138,5 +138,7 @@ class AppTheme:
         ("Dashboard",                  "📊"),
         ("Report Analyzer",             "📄"),
         ("SystemTestListe Analyzer",    "📗"),
+        ("SW/Variant Analyzer",         "⚙️"),
+        ("Library Analyzer",            "📚"),
         ("Presets",                     "🔧"),
     ]

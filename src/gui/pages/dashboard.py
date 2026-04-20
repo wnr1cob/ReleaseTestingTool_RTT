@@ -19,22 +19,22 @@ _TAB_CARDS = [
         "compare expected vs. actual outcomes, and export reports.",
     ),
     (
-        "📁",
-        "Folder Mgmt",
-        "Manage and organize output folders, copy and sort\n"
-        "testing files into the correct directory structure.",
-    ),
-    (
-        "📈",
-        "Reports",
-        "Browse generated reports, review historical analysis\n"
-        "results, and export findings in various formats.",
-    ),
-    (
         "⚙️",
-        "Settings",
-        "Configure application preferences, choose the UI theme,\n"
-        "and define default output paths and file options.",
+        "SW/Variant Analyzer",
+        "Extract SW versions and variant data from PDFs,\n"
+        "identify unselected versions, and export mismatch reports.",
+    ),
+    (
+        "📚",
+        "Library Analyzer",
+        "Scan PDFs for library versions, identify missing versions,\n"
+        "and export a list of PDFs without library information.",
+    ),
+    (
+        "🔧",
+        "Presets",
+        "Configure application preferences, manage extraction patterns,\n"
+        "and define default analysis settings and templates.",
     ),
 ]
 

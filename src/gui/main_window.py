@@ -27,6 +27,8 @@ from src.gui.pages.pdf_analyzer import PDFAnalyzerPage
 from src.gui.pages.excel_tools import ExcelToolsPage
 from src.gui.pages.systemtestliste_analyzer import SystemTestListePage
 from src.gui.pages.stl_presets import STLPresetsPage
+from src.gui.pages.sw_variant_analyzer import SWVariantAnalyzerPage
+from src.gui.pages.library_analyzer import LibraryAnalyzerPage
 from src.gui.splash import SplashScreen
 from src.utils.theme_manager import ThemeManager
 from src.utils.state_manager import save_state
@@ -135,13 +137,23 @@ class MainWindow:
                 self.root.after(DELAY, self._build_step, 10)
 
             elif step == 10:
-                s.set_progress(0.78, "Loading Presets module")
-                self._pages[3] = STLPresetsPage(self._content)
+                s.set_progress(0.78, "Loading SW/Variant Analyzer")
+                self._pages[3] = SWVariantAnalyzerPage(self._content)
                 self.root.after(DELAY, self._build_step, 11)
 
             elif step == 11:
-                s.set_progress(0.93, "Verifying component integrity")
+                s.set_progress(0.85, "Loading Library Analyzer")
+                self._pages[4] = LibraryAnalyzerPage(self._content)
                 self.root.after(DELAY, self._build_step, 12)
+
+            elif step == 12:
+                s.set_progress(0.92, "Loading Presets module")
+                self._pages[5] = STLPresetsPage(self._content)
+                self.root.after(DELAY, self._build_step, 13)
+
+            elif step == 13:
+                s.set_progress(0.93, "Verifying component integrity")
+                self.root.after(DELAY, self._build_step, 14)
 
             elif step == 14:
                 s.set_progress(0.98, "Finalizing workspace")
@@ -166,9 +178,8 @@ class MainWindow:
         if self._splash:
             self._splash.close()
             self._splash = None
-        # Restore the page that was active during the previous run
-        active_page = self._state.get("active_page", 0)
-        self._show_page(active_page)
+        # Always start on Dashboard regardless of previous session
+        self._show_page(0)
         self.root.deiconify()
         self.root.state("zoomed")
 
